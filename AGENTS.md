@@ -92,3 +92,18 @@ above plus a small OpenAPI doc:
     api-merge plan --schema samples/SCHEMA.yaml --collection /tmp/coll-test -o /tmp/p.yml
     api-merge apply /tmp/p.yml
     diff -r samples/bruno-collection /tmp/coll-test
+
+## Review checklist (for PRs / changes)
+
+- `ruff check .` passes.
+- **Surgical diffs**: after `apply`, `diff -r` on the before/after collection
+  shows only the intended lines — no whitespace/quote/ordering churn in
+  untouched files.
+- **Invariants hold**: no edits to `info.name`, `seq`, `runtime.scripts`,
+  `http.auth`, `settings`, environments, or user-filled values outside the
+  diffed field (see "Load-bearing details").
+- **Idempotent**: running `diff` again on the merged collection reports
+  "up to date" (modulo explicitly skipped diffs).
+- **No secrets**: nothing under `samples/`, `.merger/`, or real
+  schemas/collections/credentials is staged or committed.
+- New exported functions carry a docstring; match existing module style.
