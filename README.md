@@ -78,8 +78,9 @@ The tool never touches `info.name`, `seq`, `runtime.scripts`, `http.auth`,
 ## Development
 
 ```bash
-pip install -e .
+pip install -e .[dev]
 ruff check .          # lint
+python -m pytest tests/ -q   # tests (synthetic fixtures, no real data)
 ```
 
 Sample data for manual testing goes in `samples/` (gitignored — never commit

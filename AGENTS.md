@@ -111,10 +111,13 @@ Conventions observed in the target collection (replicate in `skeleton.py`):
 
 ## Testing
 
-No test suite — verify manually against copies. `samples/` is gitignored, so
-a fresh clone has **no test data** — ask the user for a schema + collection,
-or fabricate a minimal `opencollection.yml` + request files per the primer
-above plus a small OpenAPI doc:
+`pytest tests/` — synthetic fixtures in `tests/test_merge.py` fabricate a
+collection + two schema versions on disk; nothing real required. CI runs
+`ruff check` + `pytest` on push/PR (`.github/workflows/ci.yml`).
+
+For manual verification with real data, `samples/` is gitignored, so a fresh
+clone has **no test data** — ask the user for a schema + collection, or
+fabricate files per the primer above:
 
     cp -R samples/bruno-collection /tmp/coll-test
     api-merge plan --schema samples/SCHEMA.yaml --collection /tmp/coll-test -o /tmp/p.yml
