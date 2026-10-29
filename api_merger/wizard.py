@@ -68,10 +68,12 @@ def _review(changeset: dict, dirs: list[str]) -> bool:
             if n not in picked:
                 item["action"] = "skip"
                 continue
+            op = item["operation"]
             folder = questionary.select(
-                f"Folder for {item['operation']['operation_id']}:",
+                f"Folder for {op['method'].upper()} {op['path']} "
+                f"({op['operation_id']}):",
                 choices=dirs + ["+ New folder…"],
-                default=_suggest_folder(item["operation"], dirs),
+                default=_suggest_folder(op, dirs),
             ).ask()
             if folder is None:
                 return False
@@ -105,8 +107,9 @@ def _review(changeset: dict, dirs: list[str]) -> bool:
         console.print("\n[bold yellow]Moved endpoints[/] — update the file's "
                       "URL to the new path:")
         choices = [Choice(
-            f"{i['previous'].get('file')}: {i['previous_key']} → "
-            f"{i['operation']['method']} {i['operation']['path']}",
+            f"{i['previous'].get('file')}: "
+            f"{i['previous_key'].upper()} → "
+            f"{i['operation']['method'].upper()} {i['operation']['path']}",
             value=n, checked=True)
             for n, i in enumerate(changeset["moved"])]
         picked = questionary.checkbox("Moved endpoints:", choices=choices).ask()

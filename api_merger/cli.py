@@ -38,7 +38,7 @@ def _print_changeset(cs: dict):
     for item in cs["removed"]:
         r = item["request"]
         console.print(f"[red]- removed[/]  {r['method'].upper():6} "
-                      f"{r['url_path']}  ({r['rel']})")
+                      f"{r['url_path'].replace('{{baseUrl}}', '')}  ({r['rel']})")
     for item in cs["moved"]:
         op = item["operation"]
         console.print(f"[yellow]~ moved[/]    {op['method'].upper():6} "

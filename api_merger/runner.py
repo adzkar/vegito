@@ -9,6 +9,11 @@ from .apply import archive_file, create_request, delete_file, patch_request_file
 from .diff import _sig_for_diff
 
 
+def _ep(method: str, path: str) -> str:
+    """Endpoint label for reports: `GET /web/x/` (method always shown)."""
+    return f"{method.upper()} {path.replace('{{baseUrl}}', '')}"
+
+
 def execute_plan(root: Path, plan: dict, ops: list[dict], reqs: list[dict],
                  manifest: dict) -> dict:
     """Apply the plan. Returns a report dict; updates manifest in memory."""
@@ -24,34 +29,35 @@ def execute_plan(root: Path, plan: dict, ops: list[dict], reqs: list[dict],
         op = item["operation"]
         key = f"{op['method']} {op['norm']}"
         if item.get("action") != "add":
-            report["skipped"].append(f"+ {op['method'].upper()} {op['path']} (new endpoint)")
+            report["skipped"].append(f"+ {_ep(op['method'], op['path'])} (new endpoint)")
             continue
         try:
             path = create_request(root, item.get("folder") or "", op,
                                   item.get("name"))
             rel = str(path.relative_to(root))
             endpoints[key] = mf.endpoint_snapshot(op, rel, {})
-            report["created"].append(f"{rel} — {op['method'].upper()} {op['path']}")
+            report["created"].append(f"{_ep(op['method'], op['path'])} → {rel}")
         except Exception as exc:  # keep going; report at the end
-            report["errors"].append(f"create {op['path']}: {exc}")
+            report["errors"].append(f"create {_ep(op['method'], op['path'])}: {exc}")
 
     # --- removed endpoints ---
     for item in plan.get("removed", []):
         rel = item["file"]
         action = item.get("action", "archive")
+        label = _ep(item["method"], item["path"])
         try:
             if action == "archive":
                 archive_file(root, rel)
-                report["archived"].append(rel)
+                report["archived"].append(f"{label} — {rel}")
             elif action == "delete":
                 delete_file(root, rel)
-                report["deleted"].append(rel)
+                report["deleted"].append(f"{label} — {rel}")
             else:  # keep
                 if rel not in manual:
                     manual.append(rel)
-                report["skipped"].append(f"kept {rel} (marked manual)")
+                report["skipped"].append(f"kept {label} — {rel} (marked manual)")
         except Exception as exc:
-            report["errors"].append(f"{action} {rel}: {exc}")
+            report["errors"].append(f"{action} {label} — {rel}: {exc}")
 
     # --- moved endpoints ---
     for item in plan.get("moved", []):
@@ -59,7 +65,8 @@ def execute_plan(root: Path, plan: dict, ops: list[dict], reqs: list[dict],
         new_key = f"{op['method']} {op['norm']}"
         if item.get("action") != "move":
             report["skipped"].append(
-                f"~ {op['method'].upper()} {item.get('from')} → {op['path']} (moved)")
+                f"~ {_ep(op['method'], item.get('from', '?'))} → "
+                f"{op['path']} (moved)")
             continue
         try:
             rel = item["file"]
@@ -67,9 +74,10 @@ def execute_plan(root: Path, plan: dict, ops: list[dict], reqs: list[dict],
             _patch_req_block_url(path, op)
             endpoints.pop(item.get("previous_key"), None)
             endpoints[new_key] = mf.endpoint_snapshot(op, rel, {})
-            report["moved"].append(f"{rel}: {item.get('from')} → {op['path']}")
+            report["moved"].append(
+                f"{_ep(op['method'], item.get('from', '?'))} → {op['path']} — {rel}")
         except Exception as exc:
-            report["errors"].append(f"move {op['path']}: {exc}")
+            report["errors"].append(f"move {_ep(op['method'], op['path'])}: {exc}")
 
     # --- changed endpoints ---
     for item in plan.get("changed", []):
@@ -77,19 +85,20 @@ def execute_plan(root: Path, plan: dict, ops: list[dict], reqs: list[dict],
             item.get("operation")
         rel = item["file"]
         state_key = item.get("state_key") or f"{item['method']} {_norm_of(item['path'])}"
+        label = _ep(item["method"], item["path"])
         apply_diffs = [d for d in item["diffs"] if d.get("action") == "apply"]
         skip_diffs = [d for d in item["diffs"] if d.get("action") == "skip"]
         try:
             if apply_diffs:
                 patch_request_file(root / rel, apply_diffs)
             for d in apply_diffs:
-                report["applied"].append(f"{rel}: {d['detail']}")
+                report["applied"].append(f"{label} — {rel}: {d['detail']}")
             for d in skip_diffs:
                 if d["change"] != "note":
-                    report["skipped"].append(f"{rel}: {d['detail']}")
+                    report["skipped"].append(f"{label} — {rel}: {d['detail']}")
             for d in item["diffs"]:
                 if d["change"] == "note":
-                    report["notes"].append(f"{rel}: {d['detail']}")
+                    report["notes"].append(f"{label} — {rel}: {d['detail']}")
             if op:
                 prev = endpoints.get(state_key) or {}
                 skipped_sigs = dict(prev.get("skipped") or {})
