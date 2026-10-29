@@ -31,10 +31,62 @@ request names, folder grouping, `runtime.scripts`, auth, filled-in values.
 State lives in `<collection>/.merger/` (`state.json`, `reports/`). Skipped
 diffs are remembered by signature and hidden until the schema changes them.
 
+## Domain primer (opencollection format)
+
+Bruno collections in YAML format: `opencollection.yml` at root; each folder is
+a directory containing `folder.yml` (has `request.auth: inherit`); each request
+is `<Name>.yml` shaped like:
+
+```yaml
+info:    {name: Create Session, type: http, seq: 1, tags: [web]}
+http:
+  method: POST
+  url: "{{baseUrl}}/demo/session/"     # :param path style, {{var}} prefix
+  headers: [{name: X-Organization-Key, value: "", description: "…"}]
+  params:  [{name: page, value: "", type: query, disabled: true}]
+  body:    {type: json, data: |-}        # literal block, JSON object string
+  auth:    {type: bearer, token: "{{token}}"}
+runtime: {scripts: [{type: after-response, code: |-}]}   # user-owned, never touch
+settings: {encodeUrl: true, timeout: 0, …}
+examples: [{request: {…mirror of http…}, response: {status, body template}}]
+docs:    # schema description
+environments/*.yml hold env vars (baseUrl, token, …).
+```
+
+Conventions observed in the target collection (replicate in `skeleton.py`):
+
+- Generated query params carry `disabled: true`; headers carry `description`.
+- `auth` block only when the schema requires it: `security` containing `- {}`
+  means anonymous is allowed → no auth block emitted.
+- Response `examples` body = flattened response-schema template (all `""`).
+
+## Load-bearing details — read before changing
+
+- **`apply.py` ruamel config** (`indent(sequence=4)`, `preserve_quotes`,
+  `width=4096`) is what keeps patches surgical. Default settings reformat the
+  entire file — huge diff noise.
+- **Matching heuristic**: `norm_path` treats `{x}`, `:x`, all-numeric, and
+  UUID URL segments as param placeholders. Intentional — users paste real ids
+  into URLs (`groups/9/`). Diff restores `:param` and keeps their value.
+- **`param.path.N` apply** uses `param_file_index` (difflib alignment) — the
+  request URL and the example's URL can have *different* segment layouts.
+- **Manifest** (`.merger/state.json`): per-endpoint schema snapshot (`body`,
+  `responses` field maps + `sig`). Enables response/requiredness diffs next
+  run (files don't store schema metadata) and `skipped` diff signatures.
+- **Untouchable user data**: `info.name`, `seq`, `runtime.scripts`,
+  `http.auth`, `settings`, environments, filled-in values — edits only target
+  the specific field a diff names.
+- **Manual files**: files matching nothing in the schema would look "removed";
+  `keep` records them in `manual_files` so they stop being flagged.
+- `data: |-` literal blocks: no trailing newline in `LiteralScalarString`,
+  or ruamel emits `data: |` instead.
+
 ## Testing
 
-No test suite — verify manually against copies (sample data lives in
-`samples/`, gitignored — may contain credentials, never commit):
+No test suite — verify manually against copies. `samples/` is gitignored, so
+a fresh clone has **no test data** — ask the user for a schema + collection,
+or fabricate a minimal `opencollection.yml` + request files per the primer
+above plus a small OpenAPI doc:
 
     cp -R samples/bruno-collection /tmp/coll-test
     api-merge plan --schema samples/SCHEMA.yaml --collection /tmp/coll-test -o /tmp/p.yml
