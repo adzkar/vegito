@@ -98,7 +98,7 @@ def _request_lines(op: dict, indent: str, url: str,
         data = json.dumps(body_tpl, indent=2)
         lines += [f"{indent}body:", f"{indent}  type: json",
                   f"{indent}  data: |-"]
-        lines += [indent + "    " + l for l in data.splitlines()]
+        lines += [indent + "    " + line for line in data.splitlines()]
     return lines
 
 
@@ -132,7 +132,7 @@ def render_request_file(op: dict, seq: int) -> str:
     if resp_tpl:
         data = json.dumps(resp_tpl, indent=2)
         ex += ["      body:", "        type: json", "        data: |-"]
-        ex += ["          " + l for l in data.splitlines()]
+        ex += ["          " + line for line in data.splitlines()]
     parts.append("\n".join(ex))
 
     if op["description"]:

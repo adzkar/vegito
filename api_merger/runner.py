@@ -5,8 +5,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from . import manifest as mf
-from .apply import (archive_file, create_request, delete_file,
-                    patch_request_file)
+from .apply import archive_file, create_request, delete_file, patch_request_file
 from .diff import _sig_for_diff
 
 

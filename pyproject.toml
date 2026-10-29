@@ -18,3 +18,11 @@ api-merge = "api_merger.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["api_merger*"]
+
+[tool.ruff]
+target-version = "py39"
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "W"]
+ignore = ["E501"]  # long f-strings/descriptions are fine

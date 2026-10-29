@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 import shutil
 from io import StringIO
 from pathlib import Path
@@ -10,8 +11,12 @@ from ruamel.yaml import YAML
 from ruamel.yaml.scalarstring import LiteralScalarString
 
 from .collection import next_seq
-from .common import (param_file_index, path_segments,
-                     replace_path_segments, schema_path_to_bruno)
+from .common import (
+    param_file_index,
+    path_segments,
+    replace_path_segments,
+    schema_path_to_bruno,
+)
 from .skeleton import render_request_file, safe_filename
 
 _rt = YAML()  # round-trip: preserves comments, order, block scalars
