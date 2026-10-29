@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "api-merger"
+version = "0.1.0"
+description = "Sync a Bruno opencollection with an updated OpenAPI schema via a git-like review flow"
+requires-python = ">=3.9"
+dependencies = [
+    "ruamel.yaml>=0.17",
+    "questionary>=2.0",
+    "rich>=13.0",
+]
+
+[project.scripts]
+api-merge = "api_merger.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["api_merger*"]

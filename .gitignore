@@ -1,0 +1,18 @@
+# Sample data — real schemas/collections, may contain credentials
+samples/
+
+# Merger state + reports written into collections
+.merger/
+merge-plan.yml
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# OS
+.DS_Store
