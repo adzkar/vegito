@@ -31,6 +31,23 @@ request names, folder grouping, `runtime.scripts`, auth, filled-in values.
 State lives in `<collection>/.merger/` (`state.json`, `reports/`). Skipped
 diffs are remembered by signature and hidden until the schema changes them.
 
+## Operating the tool non-interactively (agents / automation)
+
+The wizard (`api-merge`) needs a TTY — automation should use the plan flow:
+
+1. `api-merge plan --schema X --collection Y -o merge-plan.yml`
+2. Review/edit the plan, then `api-merge apply merge-plan.yml`.
+
+Plan action vocabulary:
+
+- `added[].action`: `add` | `skip`; `folder` = destination dir (required
+  for `add` — `null` writes to collection root); `name` = request name.
+- `removed[].action`: `archive` (→ `_Archived/`) | `keep` (mark manual,
+  never re-flag) | `delete`.
+- `moved[].action`: `move` (rewrite file URL to new path) | `skip`.
+- `changed[].diffs[].action`: `apply` | `skip` (remembered by signature) |
+  `note` (informational only, e.g. response-shape notes).
+
 ## Domain primer (opencollection format)
 
 Bruno collections in YAML format: `opencollection.yml` at root; each folder is
@@ -80,6 +97,17 @@ Conventions observed in the target collection (replicate in `skeleton.py`):
   `keep` records them in `manual_files` so they stop being flagged.
 - `data: |-` literal blocks: no trailing newline in `LiteralScalarString`,
   or ruamel emits `data: |` instead.
+
+## Maintenance notes
+
+- **Version lives in two places**: `api_merger/__init__.py` and
+  `pyproject.toml` — bump together on releases.
+- **Trust boundary**: the OpenAPI schema is untrusted input (operationIds are
+  sanitized via `safe_filename`; `$ref` resolution is cycle-guarded). Plan
+  files are trusted — `folder` values are rejected if they resolve outside
+  the collection root.
+- **Bug reports** should include the `diff` output and (sanitized) plan file;
+  real schemas/collections may contain credentials — never attach them raw.
 
 ## Testing
 

@@ -236,7 +236,10 @@ def patch_request_file(path: Path, diffs: list[dict]):
 # ---------- file-level operations ----------
 
 def create_request(root: Path, folder: str, op: dict, name: str | None) -> Path:
-    target_dir = root / folder if folder else root
+    target_dir = (root / folder).resolve() if folder else root
+    if not str(target_dir).startswith(str(root.resolve()) + "/") \
+            and target_dir != root.resolve():
+        raise ValueError(f"folder escapes collection root: {folder!r}")
     target_dir.mkdir(parents=True, exist_ok=True)
     fname = safe_filename(name or op["operation_id"]) + ".yml"
     path = target_dir / fname
