@@ -83,6 +83,30 @@ def preflight(push: bool) -> None:
         fail("--push needs `gh auth login`")
 
 
+def release_notes(tag: str) -> str:
+    """What's Changed section: commit subjects since the previous tag.
+
+    `gh release create --generate-notes` only lists merged PRs, which leaves
+    the body empty for direct-push repos — so build it from the git log.
+    """
+    prev = subprocess.run(["git", "describe", "--tags", "--abbrev=0", "HEAD^"],
+                          cwd=ROOT, capture_output=True, text=True)
+    prev = prev.stdout.strip() if prev.returncode == 0 else None
+    commits = git("log", "--no-merges", "--pretty=format:- %s",
+                  f"{prev}..{tag}" if prev else tag, capture=True)
+    lines = [line for line in commits.splitlines()
+             if not line.startswith("- Release v")]
+    body = "## What's Changed\n\n" + "\n".join(lines)
+    if prev:
+        repo = subprocess.run(["gh", "repo", "view", "--json", "nameWithOwner",
+                               "-q", ".nameWithOwner"],
+                              cwd=ROOT, capture_output=True, text=True)
+        if repo.returncode == 0:
+            body += (f"\n\n**Full Changelog**: https://github.com/"
+                     f"{repo.stdout.strip()}/compare/{prev}...{tag}")
+    return body
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(
         prog="release.py",
@@ -137,12 +161,12 @@ def main() -> int:
         git("push", "origin", BRANCH)
         git("push", "origin", tag)
         subprocess.run(["gh", "release", "create", tag,
-                        "--title", tag, "--generate-notes"],
+                        "--title", tag, "--notes", release_notes(tag)],
                        cwd=ROOT, check=True)
         print(f"released {tag}")
     else:
         print(f"next: git push origin {BRANCH} {tag} && "
-              f"gh release create {tag} --generate-notes")
+              f"gh release create {tag}")
     return 0
 
 
