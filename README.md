@@ -13,6 +13,9 @@ lets you review and selectively apply each change.
 Requires **Python ≥ 3.9**.
 
 ```bash
+# first time using pipx: put its bin dir on PATH, then restart your shell
+pipx ensurepath
+
 # as a CLI tool, isolated (recommended)
 pipx install .
 
@@ -26,7 +29,9 @@ Then verify:
 api-merge --help
 ```
 
-You can also run it without installing:
+You can also run it straight from a checkout — but the interpreter still
+needs the dependencies installed (e.g. `pip install -e .` in a venv; bare
+`python3` won't have them):
 
 ```bash
 python3 -m api_merger

@@ -169,7 +169,15 @@ def main(argv=None):
 
     args = parser.parse_args(argv)
     if args.cmd is None:
-        from .wizard import run
+        try:
+            from .wizard import run
+        except ImportError as exc:
+            if exc.name and exc.name.startswith("api_merger"):
+                raise
+            console.print(f"[red]Missing dependency: {exc.name or exc}[/] — "
+                          "install the package first: `pipx install .` "
+                          "(or `pip install -e .` in a venv).")
+            return 1
         run()
         return 0
     return {"diff": _cmd_diff, "plan": _cmd_plan, "apply": _cmd_apply,

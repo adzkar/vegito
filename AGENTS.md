@@ -16,7 +16,8 @@ request names, folder grouping, `runtime.scripts`, auth, filled-in values.
 ## Install / dev
 
 - `pip install -e .` (Python ≥3.9; deps: ruamel.yaml, questionary, rich)
-- `python3 -m api_merger` works without installing.
+- `python3 -m api_merger` runs from a checkout — the interpreter still
+  needs the deps installed (e.g. in a venv).
 
 ## Layout
 
