@@ -112,6 +112,21 @@ Conventions observed in the target collection (replicate in `skeleton.py`):
 - **Bug reports** should include the `diff` output and (sanitized) plan file;
   real schemas/collections may contain credentials — never attach them raw.
 
+## Commit conventions
+
+Conventional Commits: `type(scope): imperative description` (scope optional,
+lowercase; e.g. `fix(apply): preserve literal block style`).
+
+- `feat` — user-visible behavior; `fix` — bug fix
+- `docs` — documentation only; `test` — tests; `ci` — workflows/scripts
+- `refactor` — no behavior change; `perf` — performance
+- `chore` — tooling, deps, version bumps (`chore(release): vX.Y.Z`)
+- `style` — formatting only
+
+Release notes are generated from commit subjects, so subjects should read
+well as changelog bullets (what changed, not what you did). Applies going
+forward — don't rewrite pushed history.
+
 ## Testing
 
 `pytest tests/` — synthetic fixtures in `tests/test_merge.py` fabricate a
@@ -129,7 +144,7 @@ fabricate files per the primer above:
 
 ## Review checklist (for PRs / changes)
 
-- `ruff check .` passes.
+- `ruff check .` passes; commit messages follow the convention above.
 - **Surgical diffs**: after `apply`, `diff -r` on the before/after collection
   shows only the intended lines — no whitespace/quote/ordering churn in
   untouched files.

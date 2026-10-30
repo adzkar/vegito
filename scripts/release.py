@@ -4,8 +4,9 @@
     scripts/release.py patch|minor|major [--push] [--skip-checks] [--dry-run]
 
 Bumps the version in api_merger/__init__.py and pyproject.toml together,
-commits as "Release vX.Y.Z", and creates an annotated tag. With --push, also
-pushes the commit + tag to origin and creates a GitHub release via `gh`.
+commits as "chore(release): vX.Y.Z", and creates an annotated tag. With
+--push, also pushes the commit + tag to origin and creates a GitHub release
+via `gh`.
 All validation (clean tree, master branch, checks, gh auth) runs before
 anything is mutated.
 """
@@ -95,7 +96,7 @@ def release_notes(tag: str) -> str:
     commits = git("log", "--no-merges", "--pretty=format:- %s",
                   f"{prev}..{tag}" if prev else tag, capture=True)
     lines = [line for line in commits.splitlines()
-             if not line.startswith("- Release v")]
+             if not line.startswith(("- Release v", "- chore(release):"))]
     body = "## What's Changed\n\n" + "\n".join(lines)
     if prev:
         repo = subprocess.run(["gh", "repo", "view", "--json", "nameWithOwner",
@@ -141,7 +142,7 @@ def main() -> int:
     if args.dry_run:
         print(f"{current} → {nxt}")
         print(f"would: update {len(VERSION_FILES)} files, "
-              f"commit 'Release {tag}', tag {tag}"
+              f"commit 'chore(release): {tag}', tag {tag}"
               + (", push + gh release create" if args.push else ""))
         return 0
 
@@ -153,7 +154,7 @@ def main() -> int:
         path.write_text(rx.sub(lambda m: m.group(0).replace(current, nxt),
                                text, count=1))
     git("add", *[str(p.relative_to(ROOT)) for p, _ in VERSION_FILES])
-    git("commit", "-m", f"Release {tag}")
+    git("commit", "-m", f"chore(release): {tag}")
     git("tag", "-a", tag, "-m", f"Release {tag}")
     print(f"tagged {tag} ({current} → {nxt})")
 
