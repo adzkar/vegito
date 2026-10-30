@@ -102,7 +102,9 @@ Conventions observed in the target collection (replicate in `skeleton.py`):
 ## Maintenance notes
 
 - **Version lives in two places**: `api_merger/__init__.py` and
-  `pyproject.toml` — bump together on releases.
+  `pyproject.toml` — `scripts/release.py patch|minor|major [--push]` bumps
+  both, runs the checks, tags `vX.Y.Z`, and with `--push` also pushes and
+  creates the GitHub release.
 - **Trust boundary**: the OpenAPI schema is untrusted input (operationIds are
   sanitized via `safe_filename`; `$ref` resolution is cycle-guarded). Plan
   files are trusted — `folder` values are rejected if they resolve outside
