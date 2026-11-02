@@ -122,7 +122,10 @@ Conventions observed in the target collection (replicate in `skeleton.py`):
 - **Bug reports** should include the `diff` output and (sanitized) plan file;
   real schemas/collections may contain credentials — never attach them raw.
 - **Docs shell snippets**: quote extras specs — `pip install -e '.[dev]'`;
-  bare `[dev]` is a zsh glob and fails on the default macOS shell.
+  bare `[dev]` is a zsh glob and fails on the default macOS shell. Every
+  snippet should be copy-pasteable as written (no `…` shorthand), and
+  install/uninstall blocks should give a command per supported installer
+  (pipx / uv tool / pip) — the README Uninstall block is the reference.
 
 ## Commit conventions
 
