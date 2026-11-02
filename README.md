@@ -27,8 +27,8 @@ pip install git+https://github.com/adzkar/vegito.git
 
 The VCS spec tracks the default branch — to pin a release, append the
 tag to the URL (e.g. `git+https://github.com/adzkar/vegito.git@v0.1.1`).
-Or skip pinning: `vegito update` upgrades to the latest release tag
-anyway.
+Or skip pinning: `vegito update` upgrades you to each new release tag
+as it lands.
 
 Then verify:
 
