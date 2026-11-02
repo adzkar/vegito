@@ -2,10 +2,13 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
 from rich.console import Console
+
+from . import __version__
 
 console = Console()
 
@@ -144,11 +147,31 @@ def _cmd_schema_diff(args):
     return 0
 
 
+def _maybe_notify_update() -> None:
+    """Print the update notice on interactive runs — never raises.
+
+    stderr-only and TTY-gated so piped `diff`/`plan` output stays
+    machine-clean; VEGITO_NO_UPDATE_CHECK opts out.
+    """
+    try:
+        if (os.environ.get("VEGITO_NO_UPDATE_CHECK")
+                or not getattr(sys.stderr, "isatty", lambda: False)()):
+            return
+        from .updates import update_notice
+        notice = update_notice()
+        if notice:
+            print(notice, file=sys.stderr)
+    except Exception:
+        return
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(
         prog="vegito",
         description="Sync a Bruno opencollection with an updated OpenAPI "
                     "schema. Run without arguments for the guided flow.")
+    parser.add_argument("--version", action="version",
+                        version=f"%(prog)s {__version__}")
     sub = parser.add_subparsers(dest="cmd")
 
     for name, help_ in (("diff", "print the changeset, change nothing"),
@@ -168,6 +191,7 @@ def main(argv=None):
                 p.add_argument("--out", "-o")
 
     args = parser.parse_args(argv)
+    _maybe_notify_update()
     if args.cmd is None:
         try:
             from .wizard import run
