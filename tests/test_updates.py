@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import sys
 import time
 
 import vegito.updates as u
@@ -99,7 +100,9 @@ def test_failed_fetch_is_cached(tmp_path, monkeypatch):
 def test_update_notice_announces(tmp_path, monkeypatch):
     monkeypatch.setattr(u, "_cache_dir", lambda: tmp_path)
     monkeypatch.setattr(u, "_fetch_latest", lambda: "v99.0.0")
-    assert "v99.0.0" in u.update_notice()
+    notice = u.update_notice()
+    assert "v99.0.0" in notice
+    assert "vegito update" not in notice
 
 
 def test_update_notice_quiet_when_current(tmp_path, monkeypatch):
@@ -133,6 +136,15 @@ def test_notify_skipped_when_not_tty(monkeypatch, capsys):
     monkeypatch.delenv("VEGITO_NO_UPDATE_CHECK", raising=False)
     _maybe_notify_update(None)
     assert capsys.readouterr().err == ""
+
+
+def test_notify_survives_missing_stderr(monkeypatch):
+    """sys.stderr is None under pythonw-style embeds — still no raise."""
+    from vegito.cli import _maybe_notify_update
+
+    monkeypatch.delenv("VEGITO_NO_UPDATE_CHECK", raising=False)
+    monkeypatch.setattr(sys, "stderr", None)
+    _maybe_notify_update()
 
 
 def test_vcs_url_pinned_to_tag():

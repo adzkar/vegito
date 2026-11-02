@@ -192,23 +192,23 @@ def _cmd_update(_args):
     return rc
 
 
-def _maybe_notify_update(cmd: str | None) -> None:
+def _maybe_notify_update(cmd: str | None = None) -> None:
     """Print the update notice on interactive runs — never raises.
 
     stderr-only and TTY-gated so piped `diff`/`plan` output stays
     machine-clean; skipped on `update` (it does its own check) and when
     VEGITO_NO_UPDATE_CHECK is set.
     """
-    if (cmd == "update" or os.environ.get("VEGITO_NO_UPDATE_CHECK")
-            or not sys.stderr.isatty()):
-        return
     try:
+        if (cmd == "update" or os.environ.get("VEGITO_NO_UPDATE_CHECK")
+                or not getattr(sys.stderr, "isatty", lambda: False)()):
+            return
         from .updates import update_notice
         notice = update_notice()
+        if notice:
+            print(notice, file=sys.stderr)
     except Exception:
         return
-    if notice:
-        print(notice, file=sys.stderr)
 
 
 def main(argv=None):
