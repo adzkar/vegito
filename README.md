@@ -19,8 +19,12 @@ pipx install git+https://github.com/adzkar/vegito.git
 # first time using pipx: `pipx ensurepath`, then restart your shell
 ```
 
-The VCS spec tracks the default branch — pin a release with
-`…@vX.Y.Z` if you don't want unreleased commits.
+The VCS spec tracks the default branch — pin a release if you don't
+want unreleased commits:
+
+```bash
+pipx install git+https://github.com/adzkar/vegito.git@vX.Y.Z
+```
 
 Then verify:
 
@@ -58,6 +62,7 @@ are never touched: update those with `git pull` + `pip install -e .`.
 
 ```bash
 pipx uninstall vegito     # pipx installs
+uv tool uninstall vegito  # uv tool installs
 pip uninstall vegito      # plain pip installs
 ```
 
@@ -74,6 +79,7 @@ The project was renamed (`api-merger` package / `api-merge` command →
 
 ```bash
 pipx uninstall api-merger     # the *package* name — `api-merge` matches nothing
+# plain `pip install` users: `pip uninstall api-merger` instead
 rm -f ~/.local/bin/api-merge  # only if the shim lingers on PATH
 pipx install git+https://github.com/adzkar/vegito.git
 ```
