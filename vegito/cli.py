@@ -182,7 +182,13 @@ def _cmd_update(_args):
         return 1
     console.print(f"Updating vegito v{__version__} → {latest}:")
     console.print(f"  [dim]+ {' '.join(cmd)}[/]")
-    rc = subprocess.run(cmd).returncode
+    try:
+        rc = subprocess.run(cmd).returncode
+    except OSError as exc:
+        # the resolved installer vanished between which() and exec
+        console.print(f"[red]Update failed[/] — could not run "
+                      f"{' '.join(cmd)}: {exc}")
+        return 1
     if rc == 0:
         console.print("[green]Updated[/] — `vegito --version` in a new "
                       "shell should report the new version")

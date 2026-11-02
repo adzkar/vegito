@@ -338,6 +338,24 @@ def test_cmd_update_runs_installer(monkeypatch):
     assert "v99.0.0" in ran[0]
 
 
+def test_cmd_update_missing_installer(monkeypatch):
+    # Binary resolved by which() can vanish before exec — must report
+    # cleanly, not traceback.
+    import vegito.cli as cli_mod
+    from vegito.cli import _cmd_update
+
+    monkeypatch.setattr(u, "latest_version", lambda **kw: "v99.0.0")
+    monkeypatch.setattr(u, "install_method", lambda: "pipx")
+    monkeypatch.setattr(u, "upgrade_command",
+                        lambda tag: ["pipx", "install", tag])
+
+    def boom(cmd, **kw):
+        raise FileNotFoundError(cmd[0])
+
+    monkeypatch.setattr(cli_mod.subprocess, "run", boom)
+    assert _cmd_update(None) == 1
+
+
 def test_cmd_update_propagates_failure(monkeypatch):
     import types
 
