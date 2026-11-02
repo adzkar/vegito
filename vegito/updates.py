@@ -144,22 +144,26 @@ def install_method() -> str:
     won't carry one, and the marker travels with the venv, so relocated
     tool homes (PIPX_HOME / UV_TOOL_DIR) still detect. 'unknown' means
     no usable dist metadata — a source checkout, or a direct_url.json
-    that exists but won't parse: PEP 610 writes that file only for
-    direct installs, so an unreadable one may hide `editable: true`
-    and must fail safe rather than risk a dev tree.
+    that exists but can't be read or parsed: PEP 610 writes that file
+    only for direct installs, so an unreadable one may hide
+    `editable: true` and must fail safe rather than risk a dev tree.
     """
     try:
         direct = importlib.metadata.distribution("vegito") \
             .read_text("direct_url.json")
     except importlib.metadata.PackageNotFoundError:
         return "unknown"
+    except FileNotFoundError:
+        direct = None  # no direct_url.json — ordinary registry install
     except Exception:
-        direct = None
-    if direct:
+        # dist metadata exists but is unreadable — ambiguous, refuse.
+        return "unknown"
+    if direct is not None:
         try:
             editable = json.loads(direct) \
                 .get("dir_info", {}).get("editable")
         except Exception:
+            # present but unparseable/empty — ambiguous, refuse.
             return "unknown"
         if editable:
             return "editable"

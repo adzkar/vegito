@@ -204,12 +204,24 @@ def test_install_method_unknown_without_dist(monkeypatch):
 
 def test_install_method_corrupt_direct_url(monkeypatch):
     # PEP 610 writes direct_url.json only for direct installs — an
-    # unparseable one may hide editable:true, so fail safe to 'unknown'
-    # rather than let the pip fallback convert a dev tree.
-    for bad in ("not json{{{", "[1, 2]"):
+    # unparseable or empty one may hide editable:true, so fail safe to
+    # 'unknown' rather than let the pip fallback convert a dev tree.
+    for bad in ("not json{{{", "[1, 2]", ""):
         _fake_dist(monkeypatch, bad)
         monkeypatch.setattr(u.sys, "prefix", "/usr")
         assert u.install_method() == "unknown"
+
+
+def test_install_method_unreadable_direct_url(monkeypatch):
+    # The file exists but can't be read — same ambiguity, same refusal.
+    class UnreadableDist(_FakeDist):
+        def read_text(self, name):
+            raise PermissionError(name)
+
+    monkeypatch.setattr(u.importlib.metadata, "distribution",
+                        lambda name: UnreadableDist(None))
+    monkeypatch.setattr(u.sys, "prefix", "/usr")
+    assert u.install_method() == "unknown"
 
 
 def test_install_method_uv_tool(tmp_path, monkeypatch):
