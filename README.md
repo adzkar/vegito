@@ -88,6 +88,8 @@ pipx uninstall api-merger     # the *package* name — `api-merge` matches nothi
 # plain `pip install` users: `pip uninstall api-merger` instead
 rm -f ~/.local/bin/api-merge  # only if the shim lingers on PATH
 pipx install git+https://github.com/adzkar/vegito.git
+# uv tool users: `uv tool install git+https://github.com/adzkar/vegito.git` instead
+# plain `pip install` users: `pip install git+https://github.com/adzkar/vegito.git` instead
 ```
 
 Collections carry over unchanged — their `.merger/` state keeps working.
