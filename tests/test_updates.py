@@ -172,12 +172,35 @@ def test_install_method_pipx(monkeypatch):
 
 
 def test_install_method_pip_default(monkeypatch):
+    _fake_dist(monkeypatch, None)  # installed, no direct_url.json
+    monkeypatch.setattr(u.sys, "prefix", "/usr")
+    assert u.install_method() == "pip"
+
+
+def test_install_method_unknown_without_dist(monkeypatch):
+    # `python -m vegito` from a source checkout has no dist metadata —
+    # nothing an installer could upgrade, so do not claim "pip".
     monkeypatch.setattr(
         u.importlib.metadata, "distribution",
         lambda name: (_ for _ in ()).throw(
             u.importlib.metadata.PackageNotFoundError(name)))
     monkeypatch.setattr(u.sys, "prefix", "/usr")
+    assert u.install_method() == "unknown"
+
+
+def test_install_method_pipx_needs_path_components(monkeypatch):
+    # A venv under a 'pipx'-named project dir must not misdetect —
+    # match whole path segments, not substrings.
+    _fake_dist(monkeypatch, json.dumps({"dir_info": {"editable": False}}))
+    monkeypatch.setattr(u.sys, "prefix", "/Users/x/proj/pipx-notes/.venv")
     assert u.install_method() == "pip"
+
+
+def test_install_method_uv_tool(monkeypatch):
+    _fake_dist(monkeypatch, json.dumps({"dir_info": {"editable": False}}))
+    monkeypatch.setattr(u.sys, "prefix",
+                        "/Users/x/.local/share/uv/tools/vegito")
+    assert u.install_method() == "uv"
 
 
 def test_upgrade_command_pipx(monkeypatch):
@@ -203,6 +226,14 @@ def test_upgrade_command_pip(monkeypatch):
     assert cmd[-1].endswith("@v0.2.0")
 
 
+def test_upgrade_command_uv(monkeypatch):
+    monkeypatch.setattr(u, "install_method", lambda: "uv")
+    monkeypatch.setattr(u.shutil, "which", lambda name: "/usr/bin/uv")
+    assert u.upgrade_command("v0.2.0") == [
+        "uv", "tool", "install", "--force",
+        "git+https://github.com/adzkar/vegito.git@v0.2.0"]
+
+
 def test_cmd_update_already_current(monkeypatch, capsys):
     from vegito.cli import _cmd_update
 
@@ -216,6 +247,14 @@ def test_cmd_update_editable_refuses(monkeypatch):
 
     monkeypatch.setattr(u, "latest_version", lambda **kw: "v99.0.0")
     monkeypatch.setattr(u, "install_method", lambda: "editable")
+    assert _cmd_update(None) == 1
+
+
+def test_cmd_update_unknown_refuses(monkeypatch):
+    from vegito.cli import _cmd_update
+
+    monkeypatch.setattr(u, "latest_version", lambda **kw: "v99.0.0")
+    monkeypatch.setattr(u, "install_method", lambda: "unknown")
     assert _cmd_update(None) == 1
 
 

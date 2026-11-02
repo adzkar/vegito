@@ -130,32 +130,46 @@ def _vcs_url(tag: str) -> str:
 
 
 def install_method() -> str:
-    """How this vegito was installed: 'editable' | 'pipx' | 'pip'.
+    """How this vegito was installed.
+
+    Returns 'editable' | 'pipx' | 'uv' | 'pip' | 'unknown'.
 
     Editable wins over pipx — `pipx install --editable` leaves a dev tree
-    we must not touch. pipx detection keys off sys.prefix (the venv dir,
-    not the python binary — that symlink resolves outside the venv).
+    we must not touch. pipx/uv detection keys off sys.prefix path
+    components (the venv dir, not the python binary — that symlink
+    resolves outside the venv); a plain substring match could misname an
+    unrelated venv living under a 'pipx'-named directory. 'unknown' means
+    no dist metadata — e.g. `python -m vegito` from a source checkout —
+    so there is nothing an installer could upgrade.
     """
     try:
         direct = importlib.metadata.distribution("vegito") \
             .read_text("direct_url.json")
         if direct and json.loads(direct).get("dir_info", {}).get("editable"):
             return "editable"
+    except importlib.metadata.PackageNotFoundError:
+        return "unknown"
     except Exception:
         pass
-    if "pipx" in sys.prefix:
+    parts = Path(sys.prefix).parts
+    if "pipx" in parts and "venvs" in parts:
         return "pipx"
+    if "uv" in parts and "tools" in parts:
+        return "uv"
     return "pip"
 
 
 def upgrade_command(tag: str) -> list[str]:
     """The installer command that lands `tag` for the detected method.
 
-    pipx gets `install --force` (its `upgrade` won't re-pull a VCS spec);
-    a pipx venv without the pipx binary falls back to in-place pip, which
-    still updates the package — only pipx's own metadata lags.
+    pipx/uv get `install --force` (their `upgrade` won't re-pull a VCS
+    spec); a tool venv without the binary on PATH falls back to in-place
+    pip, which still updates the package — only the tool's metadata lags.
     """
-    if install_method() == "pipx" and shutil.which("pipx"):
+    method = install_method()
+    if method == "pipx" and shutil.which("pipx"):
         return ["pipx", "install", "--force", _vcs_url(tag)]
+    if method == "uv" and shutil.which("uv"):
+        return ["uv", "tool", "install", "--force", _vcs_url(tag)]
     return [sys.executable, "-m", "pip", "install", "--upgrade",
             _vcs_url(tag)]

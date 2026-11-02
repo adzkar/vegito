@@ -166,10 +166,16 @@ def _cmd_update(_args):
     if not is_newer(latest):
         console.print(f"[green]Already up to date[/] (v{__version__})")
         return 0
-    if install_method() == "editable":
+    method = install_method()
+    if method == "editable":
         console.print(f"[yellow]{latest} is available[/] but this is an "
                       "editable install — update the checkout manually:\n"
                       "  git pull && pip install -e .")
+        return 1
+    if method == "unknown":
+        console.print(f"[yellow]{latest} is available[/] but no installed "
+                      "vegito package was found — running from a source "
+                      "checkout? Update it manually:\n  git pull")
         return 1
     cmd = upgrade_command(latest)
     console.print(f"Updating vegito v{__version__} → {latest}:")
