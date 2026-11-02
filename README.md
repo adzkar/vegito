@@ -31,7 +31,7 @@ vegito --version
 For development, install from a checkout instead:
 
 ```bash
-git clone git@github.com:adzkar/vegito.git && cd vegito
+git clone https://github.com/adzkar/vegito.git && cd vegito
 pip install -e '.[dev]'
 ```
 
