@@ -15,9 +15,15 @@ request names, folder grouping, `runtime.scripts`, auth, filled-in values.
 - `vegito update` — upgrade to the latest GitHub release tag; detects the
   install method and shells out to that installer (editable installs are
   refused). `vegito --version` prints the installed version.
+- Interactive runs print an "update available" notice on stderr while a
+  newer release exists — the release check runs once a day at most (24h
+  cache). `VEGITO_NO_UPDATE_CHECK=1` opts out; non-TTY output is never
+  touched.
 
 ## Install / dev
 
+- `pipx install git+https://github.com/adzkar/vegito.git` — isolated CLI
+  install (uninstall: `pipx uninstall vegito`)
 - `pip install -e .` (Python ≥3.9; deps: ruamel.yaml, questionary, rich)
 - `python3 -m vegito` runs from a checkout — the interpreter still
   needs the deps installed (e.g. in a venv).
@@ -31,6 +37,8 @@ request names, folder grouping, `runtime.scripts`, auth, filled-in values.
 - `vegito/apply.py` / `skeleton.py` — surgical edits + new-file generation
 - `vegito/runner.py` — plan execution + report
 - `vegito/wizard.py` — interactive flow; `cli.py` — argparse entry
+- `vegito/updates.py` — GitHub release check (24h cache) + `vegito update`
+  install-method detection (editable / pipx / uv / pip / unknown)
 
 State lives in `<collection>/.merger/` (`state.json`, `reports/`). Skipped
 diffs are remembered by signature and hidden until the schema changes them.
@@ -114,6 +122,13 @@ Conventions observed in the target collection (replicate in `skeleton.py`):
   the collection root.
 - **Bug reports** should include the `diff` output and (sanitized) plan file;
   real schemas/collections may contain credentials — never attach them raw.
+- **Docs shell snippets**: quote extras specs — `pip install -e '.[dev]'`;
+  bare `[dev]` is a zsh glob and fails on the default macOS shell. Every
+  snippet should be copy-pasteable as written (no `…` shorthand — a
+  placeholder that can't paste, like a release tag, goes in prose with a
+  concrete example instead), and install/uninstall blocks should give a
+  command per supported installer (pipx / uv tool / pip) — the README
+  Uninstall block is the reference.
 
 ## Commit conventions
 

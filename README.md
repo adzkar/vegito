@@ -10,23 +10,38 @@ lets you review and selectively apply each change.
 
 ## Install
 
-Requires **Python ≥ 3.9**.
+Requires **Python ≥ 3.9**; [pipx](https://pipx.pypa.io) recommended —
+it installs the CLI in an isolated environment:
 
 ```bash
-# first time using pipx: put its bin dir on PATH, then restart your shell
-pipx ensurepath
-
-# as a CLI tool, isolated (recommended)
-pipx install .
-
-# or as an editable install for development
-pip install -e .
+pipx install git+https://github.com/adzkar/vegito.git
+# first time using pipx: `pipx ensurepath`, then restart your shell
 ```
+
+Other installers take the same VCS spec:
+
+```bash
+uv tool install git+https://github.com/adzkar/vegito.git
+pip install git+https://github.com/adzkar/vegito.git
+```
+
+The VCS spec tracks the default branch — to pin a release, append the
+tag to the URL (e.g. `git+https://github.com/adzkar/vegito.git@v0.1.1`).
+Or skip pinning: `vegito update` upgrades you to each new release tag
+as it lands (installs already at the latest version number are left
+alone).
 
 Then verify:
 
 ```bash
-vegito --help
+vegito --version
+```
+
+For development, install from a checkout instead:
+
+```bash
+git clone https://github.com/adzkar/vegito.git && cd vegito
+pip install -e '.[dev]'
 ```
 
 You can also run it straight from a checkout — but the interpreter still
@@ -36,6 +51,48 @@ needs the dependencies installed (e.g. `pip install -e .` in a venv; bare
 ```bash
 python3 -m vegito
 ```
+
+## Update
+
+```bash
+vegito update
+```
+
+Upgrades to the latest GitHub release tag. Interactive runs also print a
+one-line notice when a newer release exists (checked once a day at most,
+cached) — set `VEGITO_NO_UPDATE_CHECK=1` to opt out. Editable/dev installs
+are never touched: update those with `git pull` + `pip install -e .`.
+
+## Uninstall
+
+```bash
+pipx uninstall vegito     # pipx installs
+uv tool uninstall vegito  # uv tool installs
+pip uninstall vegito      # plain pip installs
+```
+
+vegito also keeps state **inside each collection** at
+`<collection>/.merger/` (manifest + run reports) — package managers can't
+see it. Delete it per collection to fully remove vegito's footprint, or
+leave it: it's small, and it preserves your skipped-diff memory if you
+reinstall later.
+
+### Migrating from `api-merge`
+
+The project was renamed (`api-merger` package / `api-merge` command →
+`vegito`). pip can't rename a dist, so it's a one-time manual reinstall:
+
+```bash
+pipx uninstall api-merger     # the *package* name — `api-merge` matches nothing
+# uv tool users: `uv tool uninstall api-merger` instead
+# plain `pip install` users: `pip uninstall api-merger` instead
+rm -f ~/.local/bin/api-merge  # only if the shim lingers on PATH
+pipx install git+https://github.com/adzkar/vegito.git
+# uv tool users: `uv tool install git+https://github.com/adzkar/vegito.git` instead
+# plain `pip install` users: `pip install git+https://github.com/adzkar/vegito.git` instead
+```
+
+Collections carry over unchanged — their `.merger/` state keeps working.
 
 ## Usage
 
@@ -84,7 +141,7 @@ The tool never touches `info.name`, `seq`, `runtime.scripts`, `http.auth`,
 ## Development
 
 ```bash
-pip install -e .[dev]
+pip install -e '.[dev]'
 ruff check .          # lint
 python -m pytest tests/ -q   # tests (synthetic fixtures, no real data)
 ```
