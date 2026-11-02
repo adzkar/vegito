@@ -149,6 +149,29 @@ def test_notify_survives_missing_stderr(monkeypatch):
     _maybe_notify_update()
 
 
+def test_notify_skipped_on_update_cmd(monkeypatch):
+    # `vegito update` does its own check — the notice stays silent on a
+    # TTY even when an update is available, and fires for other commands.
+    from vegito.cli import _maybe_notify_update
+
+    written = []
+
+    class _TtyErr:
+        def isatty(self):
+            return True
+
+        def write(self, s):
+            written.append(s)
+
+    monkeypatch.delenv("VEGITO_NO_UPDATE_CHECK", raising=False)
+    monkeypatch.setattr(sys, "stderr", _TtyErr())
+    monkeypatch.setattr(u, "update_notice", lambda: "new version out")
+    _maybe_notify_update("update")
+    assert written == []
+    _maybe_notify_update(None)
+    assert any("new version out" in w for w in written)
+
+
 def test_vcs_url_pinned_to_tag():
     assert u._vcs_url("v0.2.0") == \
         "git+https://github.com/adzkar/vegito.git@v0.2.0"
