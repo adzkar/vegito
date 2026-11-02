@@ -164,10 +164,12 @@ def test_install_method_editable(monkeypatch):
     assert u.install_method() == "editable"  # editable wins over pipx
 
 
-def test_install_method_pipx(monkeypatch):
+def test_install_method_pipx(tmp_path, monkeypatch):
+    venv = tmp_path / "pipx" / "venvs" / "vegito"
+    venv.mkdir(parents=True)
+    (venv / "pipx_metadata.json").touch()
     _fake_dist(monkeypatch, json.dumps({"dir_info": {"editable": False}}))
-    monkeypatch.setattr(u.sys, "prefix",
-                        "/Users/x/.local/share/pipx/venvs/vegito")
+    monkeypatch.setattr(u.sys, "prefix", str(venv))
     assert u.install_method() == "pipx"
 
 
@@ -196,10 +198,12 @@ def test_install_method_pipx_needs_path_components(monkeypatch):
     assert u.install_method() == "pip"
 
 
-def test_install_method_uv_tool(monkeypatch):
+def test_install_method_uv_tool(tmp_path, monkeypatch):
+    venv = tmp_path / "share" / "uv" / "tools" / "vegito"
+    venv.mkdir(parents=True)
+    (venv / "uv-receipt.toml").touch()
     _fake_dist(monkeypatch, json.dumps({"dir_info": {"editable": False}}))
-    monkeypatch.setattr(u.sys, "prefix",
-                        "/Users/x/.local/share/uv/tools/vegito")
+    monkeypatch.setattr(u.sys, "prefix", str(venv))
     assert u.install_method() == "uv"
 
 
@@ -208,6 +212,20 @@ def test_install_method_needs_adjacency(monkeypatch):
     _fake_dist(monkeypatch, json.dumps({"dir_info": {"editable": False}}))
     for prefix in ("/Users/x/venvs/pipx", "/Users/x/tools/uv"):
         monkeypatch.setattr(u.sys, "prefix", prefix)
+        assert u.install_method() == "pip"
+
+
+def test_install_method_needs_marker_file(tmp_path, monkeypatch):
+    # Canonical path shape but no ownership marker — a hand-made venv
+    # the tool never managed must not be claimed.
+    for shape, venv in (
+        (("pipx", "venvs", "vegito"), tmp_path / "a"),
+        (("uv", "tools", "vegito"), tmp_path / "b"),
+    ):
+        root = venv.joinpath(*shape)
+        root.mkdir(parents=True)
+        _fake_dist(monkeypatch, json.dumps({"dir_info": {"editable": False}}))
+        monkeypatch.setattr(u.sys, "prefix", str(root))
         assert u.install_method() == "pip"
 
 
@@ -240,6 +258,14 @@ def test_upgrade_command_uv(monkeypatch):
     assert u.upgrade_command("v0.2.0") == [
         "uv", "tool", "install", "--force",
         "git+https://github.com/adzkar/vegito.git@v0.2.0"]
+
+
+def test_upgrade_command_refuses_unmanaged(monkeypatch):
+    # editable/unknown carry no installer — the refusal lives here so
+    # callers can't silently pip-install into a dev checkout.
+    for method in ("editable", "unknown"):
+        monkeypatch.setattr(u, "install_method", lambda m=method: m)
+        assert u.upgrade_command("v0.2.0") is None
 
 
 def test_cmd_update_already_current(monkeypatch, capsys):

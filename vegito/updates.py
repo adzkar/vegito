@@ -138,10 +138,12 @@ def install_method() -> str:
     we must not touch. pipx/uv detection keys off sys.prefix path
     components (the venv dir, not the python binary — that symlink
     resolves outside the venv), requiring the canonical adjacency —
-    'pipx' directly above 'venvs', 'uv' directly above 'tools' — so a
-    stray 'pipx'/'tools' segment elsewhere in the path can't misdetect.
-    'unknown' means no dist metadata — e.g. `python -m vegito` from a
-    source checkout — so there is nothing an installer could upgrade.
+    'pipx' directly above 'venvs', 'uv' directly above 'tools' — then
+    confirms ownership via the marker each tool writes into its venvs
+    (`pipx_metadata.json` / `uv-receipt.toml`), so a hand-made venv at a
+    tool-shaped path can't misdetect. 'unknown' means no dist metadata —
+    e.g. `python -m vegito` from a source checkout — so there is nothing
+    an installer could upgrade.
     """
     try:
         direct = importlib.metadata.distribution("vegito") \
@@ -152,17 +154,23 @@ def install_method() -> str:
         return "unknown"
     except Exception:
         pass
-    parts = Path(sys.prefix).parts
-    adjacent = set(zip(parts, parts[1:]))
-    if ("pipx", "venvs") in adjacent:
+    prefix = Path(sys.prefix)
+    adjacent = set(zip(prefix.parts, prefix.parts[1:]))
+    if ("pipx", "venvs") in adjacent \
+            and (prefix / "pipx_metadata.json").exists():
         return "pipx"
-    if ("uv", "tools") in adjacent:
+    if ("uv", "tools") in adjacent \
+            and (prefix / "uv-receipt.toml").exists():
         return "uv"
     return "pip"
 
 
-def upgrade_command(tag: str) -> list[str]:
+def upgrade_command(tag: str) -> list[str] | None:
     """The installer command that lands `tag` for the detected method.
+
+    Returns None for 'editable'/'unknown' — the refusal invariant lives
+    here, next to the detection, so no caller can quietly `pip install`
+    into a dev checkout.
 
     pipx/uv get `install --force` (their `upgrade` won't re-pull a VCS
     spec); a tool venv without the binary on PATH falls back to in-place
@@ -172,6 +180,8 @@ def upgrade_command(tag: str) -> list[str]:
     cleanly and the user must install uv first.
     """
     method = install_method()
+    if method in ("editable", "unknown"):
+        return None
     if method == "pipx" and shutil.which("pipx"):
         return ["pipx", "install", "--force", _vcs_url(tag)]
     if method == "uv" and shutil.which("uv"):
