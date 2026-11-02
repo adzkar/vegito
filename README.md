@@ -60,6 +60,7 @@ vegito diff --schema NEW.yaml [--collection DIR]   # print changeset, change not
 vegito plan --schema NEW.yaml -o merge-plan.yml    # write an editable plan file
 vegito apply [merge-plan.yml]                      # execute a plan non-interactively
 vegito schema-diff OLD.yaml NEW.yaml               # raw changelog between two schemas
+vegito update                                      # upgrade to the latest release
 ```
 
 ## How it works

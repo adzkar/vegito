@@ -7,9 +7,11 @@ to `latest_version` when a fresh answer is wanted.
 """
 from __future__ import annotations
 
+import importlib.metadata
 import json
 import os
 import re
+import shutil
 import sys
 import time
 import urllib.request
@@ -22,6 +24,7 @@ _API = f"https://api.github.com/repos/{GITHUB_REPO}"
 _RELEASES = f"https://github.com/{GITHUB_REPO}/releases"
 _CACHE_TTL = 24 * 3600
 _TIMEOUT = 1.0
+UPDATE_TIMEOUT = 5.0  # explicit `vegito update` can afford to wait
 
 
 def _cache_dir() -> Path:
@@ -42,17 +45,17 @@ def _parse_version(text: str) -> tuple[int, ...] | None:
     return tuple(int(g) for g in m.groups()) if m else None
 
 
-def _get(path: str):
+def _get(path: str, timeout: float = _TIMEOUT):
     """One GitHub API call; returns decoded JSON or raises."""
     req = urllib.request.Request(
         f"{_API}{path}",
         headers={"Accept": "application/vnd.github+json",
                  "User-Agent": f"vegito/{__version__}"})
-    with urllib.request.urlopen(req, timeout=_TIMEOUT) as resp:
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
         return json.loads(resp.read())
 
 
-def _fetch_latest() -> str | None:
+def _fetch_latest(timeout: float = _TIMEOUT) -> str | None:
     """Newest released tag on GitHub, or None on any failure.
 
     Prefers the latest *release* object; falls back to the highest semver
@@ -60,13 +63,14 @@ def _fetch_latest() -> str | None:
     `release.py --push`.
     """
     try:
-        tag = _get("/releases/latest").get("tag_name", "")
+        tag = _get("/releases/latest", timeout).get("tag_name", "")
         if tag:
             return tag
     except Exception:
         pass
     try:
-        tags = [t.get("name", "") for t in _get("/tags?per_page=100")]
+        tags = [t.get("name", "")
+                for t in _get("/tags?per_page=100", timeout)]
     except Exception:
         return None
     versions = [(v, name) for name in tags if (v := _parse_version(name))]
@@ -95,11 +99,12 @@ def _write_cache(latest: str | None) -> None:
         pass
 
 
-def latest_version(*, use_cache: bool = True) -> str | None:
+def latest_version(*, use_cache: bool = True,
+                   timeout: float = _TIMEOUT) -> str | None:
     """Newest vegito release tag (e.g. 'v0.2.0'), or None when unknown."""
     if use_cache and (cached := _read_cache()) is not None:
         return cached.get("latest")
-    latest = _fetch_latest()
+    latest = _fetch_latest(timeout)
     if use_cache:
         _write_cache(latest)
     return latest
@@ -122,3 +127,100 @@ def update_notice() -> str | None:
     except Exception:
         pass
     return None
+
+
+def _vcs_url(tag: str) -> str:
+    """Install URL pinned to an exact tag — a branch spec could drift."""
+    return f"git+https://github.com/{GITHUB_REPO}.git@{tag}"
+
+
+def _has_direct_url(dist) -> bool:
+    """True when the dist declares a direct_url.json in RECORD.
+
+    PathDistribution.read_text suppresses missing *and* unreadable
+    member files into a falsy return, so presence must come from the
+    file list (PackagePath entries carry `.name`). An inconclusive
+    listing counts as present — ambiguity fails safe.
+    """
+    try:
+        files = dist.files
+        if files is None:
+            return True
+        return any(p.name == "direct_url.json" for p in files)
+    except Exception:
+        return True
+
+
+def install_method() -> str:
+    """How this vegito was installed.
+
+    Returns 'editable' | 'pipx' | 'uv' | 'pip' | 'unknown'.
+
+    Editable wins over pipx — `pipx install --editable` leaves a dev tree
+    we must not touch. pipx/uv detection trusts the marker each tool
+    writes into the venvs it manages (`pipx_metadata.json` /
+    `uv-receipt.toml` at sys.prefix — the venv dir, not the python
+    binary, whose symlink resolves outside the venv). A hand-made venv
+    won't carry one, and the marker travels with the venv, so relocated
+    tool homes (PIPX_HOME / UV_TOOL_DIR) still detect. 'unknown' means
+    no usable dist metadata — a source checkout, or a direct_url.json
+    that exists but can't be read or parsed: PEP 610 writes that file
+    only for direct installs, so an unreadable one may hide
+    `editable: true` and must fail safe rather than risk a dev tree.
+    """
+    try:
+        dist = importlib.metadata.distribution("vegito")
+    except importlib.metadata.PackageNotFoundError:
+        return "unknown"
+    except Exception:
+        # dist metadata exists but can't be queried — ambiguous.
+        return "unknown"
+    try:
+        direct = dist.read_text("direct_url.json")
+    except Exception:
+        direct = None
+    if direct:
+        try:
+            editable = json.loads(direct) \
+                .get("dir_info", {}).get("editable")
+        except Exception:
+            # present but unparseable — ambiguous, refuse.
+            return "unknown"
+        if editable:
+            return "editable"
+    elif _has_direct_url(dist):
+        # read_text suppresses absent and unreadable alike into a falsy
+        # return — a file that should be there means the contents were
+        # unreadable or empty, which may hide `editable: true`.
+        return "unknown"
+    prefix = Path(sys.prefix)
+    if (prefix / "pipx_metadata.json").exists():
+        return "pipx"
+    if (prefix / "uv-receipt.toml").exists():
+        return "uv"
+    return "pip"
+
+
+def upgrade_command(tag: str) -> list[str] | None:
+    """The installer command that lands `tag` for the detected method.
+
+    Returns None for 'editable'/'unknown' — the refusal invariant lives
+    here, next to the detection, so no caller can quietly `pip install`
+    into a dev checkout.
+
+    pipx/uv get `install --force` (their `upgrade` won't re-pull a VCS
+    spec); a tool venv without the binary on PATH falls back to in-place
+    pip. For pipx that still updates the package (its shared-libs pth
+    exposes pip) — only the tool's metadata lags. uv tool venvs ship
+    without pip, so a missing `uv` binary means the fallback fails
+    cleanly and the user must install uv first.
+    """
+    method = install_method()
+    if method in ("editable", "unknown"):
+        return None
+    if method == "pipx" and shutil.which("pipx"):
+        return ["pipx", "install", "--force", _vcs_url(tag)]
+    if method == "uv" and shutil.which("uv"):
+        return ["uv", "tool", "install", "--force", _vcs_url(tag)]
+    return [sys.executable, "-m", "pip", "install", "--upgrade",
+            _vcs_url(tag)]
