@@ -3,7 +3,7 @@
 
     scripts/release.py patch|minor|major [--push] [--skip-checks] [--dry-run]
 
-Bumps the version in api_merger/__init__.py and pyproject.toml together,
+Bumps the version in vegito/__init__.py and pyproject.toml together,
 commits as "chore(release): vX.Y.Z", and creates an annotated tag. With
 --push, also pushes the commit + tag to origin and creates a GitHub release
 via `gh`.
@@ -23,7 +23,7 @@ from typing import NoReturn
 ROOT = Path(__file__).resolve().parent.parent
 BRANCH = "master"
 VERSION_FILES = [
-    (ROOT / "api_merger" / "__init__.py",
+    (ROOT / "vegito" / "__init__.py",
      re.compile(r'__version__ = "(\d+\.\d+\.\d+)"')),
     (ROOT / "pyproject.toml",
      re.compile(r'(?m)^version = "(\d+\.\d+\.\d+)"')),

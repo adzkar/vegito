@@ -1,4 +1,4 @@
-# api-merge (vegito)
+# vegito
 
 Sync a Bruno **opencollection** with an updated OpenAPI schema — without losing
 your manual tidying (request names, folder grouping, `runtime.scripts`, auth
@@ -26,7 +26,7 @@ pip install -e .
 Then verify:
 
 ```bash
-api-merge --help
+vegito --help
 ```
 
 You can also run it straight from a checkout — but the interpreter still
@@ -34,7 +34,7 @@ needs the dependencies installed (e.g. `pip install -e .` in a venv; bare
 `python3` won't have them):
 
 ```bash
-python3 -m api_merger
+python3 -m vegito
 ```
 
 ## Usage
@@ -42,7 +42,7 @@ python3 -m api_merger
 ### Guided flow (default — no arguments)
 
 ```bash
-api-merge
+vegito
 ```
 
 Walks you through the whole merge:
@@ -56,10 +56,10 @@ Walks you through the whole merge:
 ### Other commands
 
 ```bash
-api-merge diff --schema NEW.yaml [--collection DIR]   # print changeset, change nothing
-api-merge plan --schema NEW.yaml -o merge-plan.yml    # write an editable plan file
-api-merge apply [merge-plan.yml]                      # execute a plan non-interactively
-api-merge schema-diff OLD.yaml NEW.yaml               # raw changelog between two schemas
+vegito diff --schema NEW.yaml [--collection DIR]   # print changeset, change nothing
+vegito plan --schema NEW.yaml -o merge-plan.yml    # write an editable plan file
+vegito apply [merge-plan.yml]                      # execute a plan non-interactively
+vegito schema-diff OLD.yaml NEW.yaml               # raw changelog between two schemas
 ```
 
 ## How it works

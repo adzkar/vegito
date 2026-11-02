@@ -8,18 +8,18 @@ assignees: ''
 
 ## What happened
 
-<!-- What did api-merge do wrong? -->
+<!-- What did vegito do wrong? -->
 
 ## Expected behavior
 
 ## Reproduction
 
-<!-- Paste `api-merge diff` output, and the relevant `merge-plan.yml`
+<!-- Paste `vegito diff` output, and the relevant `merge-plan.yml`
      section if you have one. SANITIZE any schema/collection data —
      real files may contain credentials. -->
 
 ## Environment
 
-- api-merge version: <!-- `api-merge --version` or commit hash -->
+- vegito version: <!-- `vegito --version` or commit hash -->
 - Python version:
 - Collection format version: <!-- opencollection: x.y.z -->

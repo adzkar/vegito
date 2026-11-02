@@ -10,13 +10,13 @@ import textwrap
 import pytest
 from ruamel.yaml import YAML
 
-from api_merger.collection import scan_collection
-from api_merger.diff import build_changeset
-from api_merger.manifest import load as load_manifest
-from api_merger.manifest import save as save_manifest
-from api_merger.planfile import changeset_to_plan
-from api_merger.runner import execute_plan
-from api_merger.schema import load_schema, parse_operations
+from vegito.collection import scan_collection
+from vegito.diff import build_changeset
+from vegito.manifest import load as load_manifest
+from vegito.manifest import save as save_manifest
+from vegito.planfile import changeset_to_plan
+from vegito.runner import execute_plan
+from vegito.schema import load_schema, parse_operations
 
 _yaml = YAML(typ="safe")
 
@@ -387,7 +387,7 @@ def test_skipped_diff_is_remembered(coll):
 
 
 def test_folder_escape_rejected(coll, tmp_path):
-    from api_merger.apply import create_request
+    from vegito.apply import create_request
     root, _, _ = coll
     op = {"operation_id": "x", "method": "get", "path": "/x/", "norm": "/x",
           "path_params": [], "query": {}, "headers": {}, "body": {},
