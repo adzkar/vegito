@@ -76,7 +76,7 @@ def test_latest_version_caches(tmp_path, monkeypatch):
     monkeypatch.setattr(u, "_cache_dir", lambda: tmp_path)
     calls = []
     monkeypatch.setattr(u, "_fetch_latest",
-                        lambda: calls.append(1) or "v9.9.9")
+                        lambda *a: calls.append(1) or "v9.9.9")
     assert u.latest_version() == "v9.9.9"
     assert u.latest_version() == "v9.9.9"
     assert len(calls) == 1
@@ -86,14 +86,15 @@ def test_latest_version_expired_cache(tmp_path, monkeypatch):
     monkeypatch.setattr(u, "_cache_dir", lambda: tmp_path)
     (tmp_path / "update-check.json").write_text(json.dumps(
         {"checked_at": time.time() - u._CACHE_TTL - 1, "latest": "v1.0.0"}))
-    monkeypatch.setattr(u, "_fetch_latest", lambda: "v2.0.0")
+    monkeypatch.setattr(u, "_fetch_latest", lambda *a: "v2.0.0")
     assert u.latest_version() == "v2.0.0"
 
 
 def test_failed_fetch_is_cached(tmp_path, monkeypatch):
     monkeypatch.setattr(u, "_cache_dir", lambda: tmp_path)
     calls = []
-    monkeypatch.setattr(u, "_fetch_latest", lambda: calls.append(1) or None)
+    monkeypatch.setattr(u, "_fetch_latest",
+                        lambda *a: calls.append(1) or None)
     assert u.latest_version() is None
     assert u.latest_version() is None
     assert len(calls) == 1
@@ -101,7 +102,7 @@ def test_failed_fetch_is_cached(tmp_path, monkeypatch):
 
 def test_update_notice_announces(tmp_path, monkeypatch):
     monkeypatch.setattr(u, "_cache_dir", lambda: tmp_path)
-    monkeypatch.setattr(u, "_fetch_latest", lambda: "v99.0.0")
+    monkeypatch.setattr(u, "_fetch_latest", lambda *a: "v99.0.0")
     notice = u.update_notice()
     assert "v99.0.0" in notice
     assert "vegito update" not in notice
@@ -109,14 +110,14 @@ def test_update_notice_announces(tmp_path, monkeypatch):
 
 def test_update_notice_quiet_when_current(tmp_path, monkeypatch):
     monkeypatch.setattr(u, "_cache_dir", lambda: tmp_path)
-    monkeypatch.setattr(u, "_fetch_latest", lambda: "v0.0.1")
+    monkeypatch.setattr(u, "_fetch_latest", lambda *a: "v0.0.1")
     assert u.update_notice() is None
 
 
 def test_update_notice_never_raises(tmp_path, monkeypatch):
     monkeypatch.setattr(u, "_cache_dir", lambda: tmp_path)
 
-    def boom():
+    def boom(*_a):
         raise RuntimeError("unexpected")
 
     monkeypatch.setattr(u, "_fetch_latest", boom)
@@ -339,6 +340,18 @@ def test_upgrade_command_refuses_unmanaged(monkeypatch):
     for method in ("editable", "unknown"):
         monkeypatch.setattr(u, "install_method", lambda m=method: m)
         assert u.upgrade_command("v0.2.0") is None
+
+
+def test_cmd_update_uses_longer_timeout(monkeypatch):
+    # The explicit command can afford to wait — unlike the 1s notice.
+    from vegito.cli import _cmd_update
+
+    seen = {}
+    monkeypatch.setattr(u, "latest_version",
+                        lambda **kw: seen.update(kw) or "v0.1.1")
+    assert _cmd_update(None) == 0
+    assert seen == {"use_cache": False, "timeout": u.UPDATE_TIMEOUT}
+    assert u.UPDATE_TIMEOUT > u._TIMEOUT
 
 
 def test_cmd_update_already_current(monkeypatch, capsys):

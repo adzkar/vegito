@@ -152,13 +152,14 @@ def _cmd_update(_args):
     """Upgrade vegito itself to the latest GitHub release tag."""
     from .updates import (
         GITHUB_REPO,
+        UPDATE_TIMEOUT,
         install_method,
         is_newer,
         latest_version,
         upgrade_command,
     )
 
-    latest = latest_version(use_cache=False)
+    latest = latest_version(use_cache=False, timeout=UPDATE_TIMEOUT)
     if not latest:
         console.print("[red]Could not determine the latest release[/] — "
                       f"see github.com/{GITHUB_REPO}/releases")

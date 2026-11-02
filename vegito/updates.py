@@ -24,6 +24,7 @@ _API = f"https://api.github.com/repos/{GITHUB_REPO}"
 _RELEASES = f"https://github.com/{GITHUB_REPO}/releases"
 _CACHE_TTL = 24 * 3600
 _TIMEOUT = 1.0
+UPDATE_TIMEOUT = 5.0  # explicit `vegito update` can afford to wait
 
 
 def _cache_dir() -> Path:
@@ -44,17 +45,17 @@ def _parse_version(text: str) -> tuple[int, ...] | None:
     return tuple(int(g) for g in m.groups()) if m else None
 
 
-def _get(path: str):
+def _get(path: str, timeout: float = _TIMEOUT):
     """One GitHub API call; returns decoded JSON or raises."""
     req = urllib.request.Request(
         f"{_API}{path}",
         headers={"Accept": "application/vnd.github+json",
                  "User-Agent": f"vegito/{__version__}"})
-    with urllib.request.urlopen(req, timeout=_TIMEOUT) as resp:
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
         return json.loads(resp.read())
 
 
-def _fetch_latest() -> str | None:
+def _fetch_latest(timeout: float = _TIMEOUT) -> str | None:
     """Newest released tag on GitHub, or None on any failure.
 
     Prefers the latest *release* object; falls back to the highest semver
@@ -62,13 +63,14 @@ def _fetch_latest() -> str | None:
     `release.py --push`.
     """
     try:
-        tag = _get("/releases/latest").get("tag_name", "")
+        tag = _get("/releases/latest", timeout).get("tag_name", "")
         if tag:
             return tag
     except Exception:
         pass
     try:
-        tags = [t.get("name", "") for t in _get("/tags?per_page=100")]
+        tags = [t.get("name", "")
+                for t in _get("/tags?per_page=100", timeout)]
     except Exception:
         return None
     versions = [(v, name) for name in tags if (v := _parse_version(name))]
@@ -97,11 +99,12 @@ def _write_cache(latest: str | None) -> None:
         pass
 
 
-def latest_version(*, use_cache: bool = True) -> str | None:
+def latest_version(*, use_cache: bool = True,
+                   timeout: float = _TIMEOUT) -> str | None:
     """Newest vegito release tag (e.g. 'v0.2.0'), or None when unknown."""
     if use_cache and (cached := _read_cache()) is not None:
         return cached.get("latest")
-    latest = _fetch_latest()
+    latest = _fetch_latest(timeout)
     if use_cache:
         _write_cache(latest)
     return latest
