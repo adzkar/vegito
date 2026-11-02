@@ -2,8 +2,8 @@
 
 Best-effort and silent on failure — a network blip or odd environment
 must never break a merge command. Answers are cached for a day in the
-platform cache dir so interactive runs stay fast; `vegito update`
-bypasses the cache when it wants a fresh answer.
+platform cache dir so interactive runs stay fast; pass `use_cache=False`
+to `latest_version` when a fresh answer is wanted.
 """
 from __future__ import annotations
 
@@ -19,6 +19,7 @@ from . import __version__
 
 GITHUB_REPO = "adzkar/vegito"
 _API = f"https://api.github.com/repos/{GITHUB_REPO}"
+_RELEASES = f"https://github.com/{GITHUB_REPO}/releases"
 _CACHE_TTL = 24 * 3600
 _TIMEOUT = 1.0
 
@@ -116,7 +117,8 @@ def update_notice() -> str | None:
         latest = latest_version()
         if is_newer(latest):
             return (f"vegito {latest} is available "
-                    f"(you have v{__version__}) — run 'vegito update'")
+                    f"(you have v{__version__}) — "
+                    f"'pipx upgrade vegito' or see {_RELEASES}")
     except Exception:
         pass
     return None

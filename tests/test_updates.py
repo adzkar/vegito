@@ -99,7 +99,9 @@ def test_failed_fetch_is_cached(tmp_path, monkeypatch):
 def test_update_notice_announces(tmp_path, monkeypatch):
     monkeypatch.setattr(u, "_cache_dir", lambda: tmp_path)
     monkeypatch.setattr(u, "_fetch_latest", lambda: "v99.0.0")
-    assert "v99.0.0" in u.update_notice()
+    notice = u.update_notice()
+    assert "v99.0.0" in notice
+    assert "vegito update" not in notice
 
 
 def test_update_notice_quiet_when_current(tmp_path, monkeypatch):
