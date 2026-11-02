@@ -37,7 +37,7 @@ request names, folder grouping, `runtime.scripts`, auth, filled-in values.
 - `vegito/runner.py` — plan execution + report
 - `vegito/wizard.py` — interactive flow; `cli.py` — argparse entry
 - `vegito/updates.py` — GitHub release check (24h cache) + `vegito update`
-  install-method detection (editable / pipx / uv / pip)
+  install-method detection (editable / pipx / uv / pip / unknown)
 
 State lives in `<collection>/.merger/` (`state.json`, `reports/`). Skipped
 diffs are remembered by signature and hidden until the schema changes them.
