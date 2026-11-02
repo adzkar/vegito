@@ -123,9 +123,11 @@ Conventions observed in the target collection (replicate in `skeleton.py`):
   real schemas/collections may contain credentials — never attach them raw.
 - **Docs shell snippets**: quote extras specs — `pip install -e '.[dev]'`;
   bare `[dev]` is a zsh glob and fails on the default macOS shell. Every
-  snippet should be copy-pasteable as written (no `…` shorthand), and
-  install/uninstall blocks should give a command per supported installer
-  (pipx / uv tool / pip) — the README Uninstall block is the reference.
+  snippet should be copy-pasteable as written (no `…` shorthand — a
+  placeholder that can't paste, like a release tag, goes in prose with a
+  concrete example instead), and install/uninstall blocks should give a
+  command per supported installer (pipx / uv tool / pip) — the README
+  Uninstall block is the reference.
 
 ## Commit conventions
 
