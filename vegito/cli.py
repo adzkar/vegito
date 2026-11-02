@@ -176,10 +176,11 @@ def _cmd_update(_args):
                           "an editable install — update the checkout "
                           "manually:\n  git pull && pip install -e .")
         else:
-            console.print(f"[yellow]{latest} is available[/] but no "
-                          "installed vegito package was found — running "
-                          "from a source checkout? Update it manually:\n"
-                          "  git pull")
+            console.print(f"[yellow]{latest} is available[/] but vegito "
+                          "can't tell how this install is managed — a "
+                          "source checkout, or unreadable install "
+                          "metadata. Update the checkout manually, or "
+                          "reinstall via your installer.")
         return 1
     console.print(f"Updating vegito v{__version__} → {latest}:")
     console.print(f"  [dim]+ {' '.join(cmd)}[/]")
