@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import sys
 import time
 
 import vegito.updates as u
@@ -135,3 +136,12 @@ def test_notify_skipped_when_not_tty(monkeypatch, capsys):
     monkeypatch.delenv("VEGITO_NO_UPDATE_CHECK", raising=False)
     _maybe_notify_update()
     assert capsys.readouterr().err == ""
+
+
+def test_notify_survives_missing_stderr(monkeypatch):
+    """sys.stderr is None under pythonw-style embeds — still no raise."""
+    from vegito.cli import _maybe_notify_update
+
+    monkeypatch.delenv("VEGITO_NO_UPDATE_CHECK", raising=False)
+    monkeypatch.setattr(sys, "stderr", None)
+    _maybe_notify_update()

@@ -153,15 +153,16 @@ def _maybe_notify_update() -> None:
     stderr-only and TTY-gated so piped `diff`/`plan` output stays
     machine-clean; VEGITO_NO_UPDATE_CHECK opts out.
     """
-    if os.environ.get("VEGITO_NO_UPDATE_CHECK") or not sys.stderr.isatty():
-        return
     try:
+        if (os.environ.get("VEGITO_NO_UPDATE_CHECK")
+                or not getattr(sys.stderr, "isatty", lambda: False)()):
+            return
         from .updates import update_notice
         notice = update_notice()
+        if notice:
+            print(notice, file=sys.stderr)
     except Exception:
         return
-    if notice:
-        print(notice, file=sys.stderr)
 
 
 def main(argv=None):
