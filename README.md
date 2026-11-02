@@ -25,12 +25,10 @@ uv tool install git+https://github.com/adzkar/vegito.git
 pip install git+https://github.com/adzkar/vegito.git
 ```
 
-The VCS spec tracks the default branch — pin a release if you don't
-want unreleased commits:
-
-```bash
-pipx install git+https://github.com/adzkar/vegito.git@vX.Y.Z
-```
+The VCS spec tracks the default branch — to pin a release, append the
+tag to the URL (e.g. `git+https://github.com/adzkar/vegito.git@v0.1.1`).
+Or skip pinning: `vegito update` upgrades to the latest release tag
+anyway.
 
 Then verify:
 
