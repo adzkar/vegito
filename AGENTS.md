@@ -12,6 +12,9 @@ request names, folder grouping, `runtime.scripts`, auth, filled-in values.
 - `vegito plan --schema X -o merge-plan.yml` — write editable plan file.
 - `vegito apply [merge-plan.yml]` — execute a plan (non-interactive).
 - `vegito schema-diff OLD.yaml NEW.yaml` — raw changelog between schemas.
+- `vegito update` — upgrade to the latest GitHub release tag; detects the
+  install method and shells out to that installer (editable installs are
+  refused). `vegito --version` prints the installed version.
 
 ## Install / dev
 
