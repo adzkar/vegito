@@ -11,12 +11,18 @@ lets you review and selectively apply each change.
 ## Install
 
 Requires **Python ≥ 3.9**; [pipx](https://pipx.pypa.io) recommended —
-it installs the CLI in an isolated environment (a plain `pip install`
-works too):
+it installs the CLI in an isolated environment:
 
 ```bash
 pipx install git+https://github.com/adzkar/vegito.git
 # first time using pipx: `pipx ensurepath`, then restart your shell
+```
+
+Other installers take the same VCS spec:
+
+```bash
+uv tool install git+https://github.com/adzkar/vegito.git
+pip install git+https://github.com/adzkar/vegito.git
 ```
 
 The VCS spec tracks the default branch — pin a release if you don't
@@ -79,6 +85,7 @@ The project was renamed (`api-merger` package / `api-merge` command →
 
 ```bash
 pipx uninstall api-merger     # the *package* name — `api-merge` matches nothing
+# uv tool users: `uv tool uninstall api-merger` instead
 # plain `pip install` users: `pip uninstall api-merger` instead
 rm -f ~/.local/bin/api-merge  # only if the shim lingers on PATH
 pipx install git+https://github.com/adzkar/vegito.git
