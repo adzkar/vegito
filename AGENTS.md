@@ -115,7 +115,8 @@ Conventions observed in the target collection (replicate in `skeleton.py`):
 ## Commit conventions
 
 Conventional Commits: `type(scope): imperative description` (scope optional,
-lowercase; e.g. `fix(apply): preserve literal block style`).
+lowercase; e.g. `fix(apply): preserve literal block style`). Breaking changes
+get `!` after the type/scope — `refactor(cli)!: rename command to vegito`.
 
 - `feat` — user-visible behavior; `fix` — bug fix
 - `docs` — documentation only; `test` — tests; `ci` — workflows/scripts
