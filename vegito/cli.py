@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -147,13 +148,51 @@ def _cmd_schema_diff(args):
     return 0
 
 
-def _maybe_notify_update() -> None:
+def _cmd_update(_args):
+    """Upgrade vegito itself to the latest GitHub release tag."""
+    from .updates import (
+        GITHUB_REPO,
+        install_method,
+        is_newer,
+        latest_version,
+        upgrade_command,
+    )
+
+    latest = latest_version(use_cache=False)
+    if not latest:
+        console.print("[red]Could not determine the latest release[/] — "
+                      f"see github.com/{GITHUB_REPO}/releases")
+        return 1
+    if not is_newer(latest):
+        console.print(f"[green]Already up to date[/] (v{__version__})")
+        return 0
+    if install_method() == "editable":
+        console.print(f"[yellow]{latest} is available[/] but this is an "
+                      "editable install — update the checkout manually:\n"
+                      "  git pull && pip install -e .")
+        return 1
+    cmd = upgrade_command(latest)
+    console.print(f"Updating vegito v{__version__} → {latest}:")
+    console.print(f"  [dim]+ {' '.join(cmd)}[/]")
+    rc = subprocess.run(cmd).returncode
+    if rc == 0:
+        console.print("[green]Updated[/] — `vegito --version` in a new "
+                      "shell should report the new version")
+    else:
+        console.print(f"[red]Update failed[/] (exit {rc}) — "
+                      f"ran: {' '.join(cmd)}")
+    return rc
+
+
+def _maybe_notify_update(cmd: str | None) -> None:
     """Print the update notice on interactive runs — never raises.
 
     stderr-only and TTY-gated so piped `diff`/`plan` output stays
-    machine-clean; VEGITO_NO_UPDATE_CHECK opts out.
+    machine-clean; skipped on `update` (it does its own check) and when
+    VEGITO_NO_UPDATE_CHECK is set.
     """
-    if os.environ.get("VEGITO_NO_UPDATE_CHECK") or not sys.stderr.isatty():
+    if (cmd == "update" or os.environ.get("VEGITO_NO_UPDATE_CHECK")
+            or not sys.stderr.isatty()):
         return
     try:
         from .updates import update_notice
@@ -189,8 +228,10 @@ def main(argv=None):
             if name == "plan":
                 p.add_argument("--out", "-o")
 
+    sub.add_parser("update", help="upgrade vegito to the latest release")
+
     args = parser.parse_args(argv)
-    _maybe_notify_update()
+    _maybe_notify_update(args.cmd)
     if args.cmd is None:
         try:
             from .wizard import run
@@ -205,7 +246,7 @@ def main(argv=None):
         run()
         return 0
     return {"diff": _cmd_diff, "plan": _cmd_plan, "apply": _cmd_apply,
-            "schema-diff": _cmd_schema_diff}[args.cmd](args)
+            "schema-diff": _cmd_schema_diff, "update": _cmd_update}[args.cmd](args)
 
 
 if __name__ == "__main__":

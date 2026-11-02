@@ -7,9 +7,11 @@ bypasses the cache when it wants a fresh answer.
 """
 from __future__ import annotations
 
+import importlib.metadata
 import json
 import os
 import re
+import shutil
 import sys
 import time
 import urllib.request
@@ -120,3 +122,40 @@ def update_notice() -> str | None:
     except Exception:
         pass
     return None
+
+
+def _vcs_url(tag: str) -> str:
+    """Install URL pinned to an exact tag — a branch spec could drift."""
+    return f"git+https://github.com/{GITHUB_REPO}.git@{tag}"
+
+
+def install_method() -> str:
+    """How this vegito was installed: 'editable' | 'pipx' | 'pip'.
+
+    Editable wins over pipx — `pipx install --editable` leaves a dev tree
+    we must not touch. pipx detection keys off sys.prefix (the venv dir,
+    not the python binary — that symlink resolves outside the venv).
+    """
+    try:
+        direct = importlib.metadata.distribution("vegito") \
+            .read_text("direct_url.json")
+        if direct and json.loads(direct).get("dir_info", {}).get("editable"):
+            return "editable"
+    except Exception:
+        pass
+    if "pipx" in sys.prefix:
+        return "pipx"
+    return "pip"
+
+
+def upgrade_command(tag: str) -> list[str]:
+    """The installer command that lands `tag` for the detected method.
+
+    pipx gets `install --force` (its `upgrade` won't re-pull a VCS spec);
+    a pipx venv without the pipx binary falls back to in-place pip, which
+    still updates the package — only pipx's own metadata lags.
+    """
+    if install_method() == "pipx" and shutil.which("pipx"):
+        return ["pipx", "install", "--force", _vcs_url(tag)]
+    return [sys.executable, "-m", "pip", "install", "--upgrade",
+            _vcs_url(tag)]

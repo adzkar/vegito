@@ -122,7 +122,7 @@ def test_notify_env_opt_out(monkeypatch, capsys):
     from vegito.cli import _maybe_notify_update
 
     monkeypatch.setenv("VEGITO_NO_UPDATE_CHECK", "1")
-    _maybe_notify_update()
+    _maybe_notify_update(None)
     assert capsys.readouterr().err == ""
 
 
@@ -131,5 +131,123 @@ def test_notify_skipped_when_not_tty(monkeypatch, capsys):
     from vegito.cli import _maybe_notify_update
 
     monkeypatch.delenv("VEGITO_NO_UPDATE_CHECK", raising=False)
-    _maybe_notify_update()
+    _maybe_notify_update(None)
     assert capsys.readouterr().err == ""
+
+
+def test_vcs_url_pinned_to_tag():
+    assert u._vcs_url("v0.2.0") == \
+        "git+https://github.com/adzkar/vegito.git@v0.2.0"
+
+
+class _FakeDist:
+    """importlib.metadata.Distribution stub with a canned direct_url."""
+
+    def __init__(self, direct_url):
+        self.direct_url = direct_url
+
+    def read_text(self, name):
+        assert name == "direct_url.json"
+        return self.direct_url
+
+
+def _fake_dist(monkeypatch, direct_url):
+    monkeypatch.setattr(u.importlib.metadata, "distribution",
+                        lambda name: _FakeDist(direct_url))
+
+
+def test_install_method_editable(monkeypatch):
+    _fake_dist(monkeypatch, json.dumps(
+        {"dir_info": {"editable": True}, "url": "file:///repo"}))
+    monkeypatch.setattr(u.sys, "prefix",
+                        "/Users/x/.local/share/pipx/venvs/vegito")
+    assert u.install_method() == "editable"  # editable wins over pipx
+
+
+def test_install_method_pipx(monkeypatch):
+    _fake_dist(monkeypatch, json.dumps({"dir_info": {"editable": False}}))
+    monkeypatch.setattr(u.sys, "prefix",
+                        "/Users/x/.local/share/pipx/venvs/vegito")
+    assert u.install_method() == "pipx"
+
+
+def test_install_method_pip_default(monkeypatch):
+    monkeypatch.setattr(
+        u.importlib.metadata, "distribution",
+        lambda name: (_ for _ in ()).throw(
+            u.importlib.metadata.PackageNotFoundError(name)))
+    monkeypatch.setattr(u.sys, "prefix", "/usr")
+    assert u.install_method() == "pip"
+
+
+def test_upgrade_command_pipx(monkeypatch):
+    monkeypatch.setattr(u, "install_method", lambda: "pipx")
+    monkeypatch.setattr(u.shutil, "which", lambda name: "/usr/bin/pipx")
+    assert u.upgrade_command("v0.2.0") == [
+        "pipx", "install", "--force",
+        "git+https://github.com/adzkar/vegito.git@v0.2.0"]
+
+
+def test_upgrade_command_falls_back_without_pipx_binary(monkeypatch):
+    monkeypatch.setattr(u, "install_method", lambda: "pipx")
+    monkeypatch.setattr(u.shutil, "which", lambda name: None)
+    cmd = u.upgrade_command("v0.2.0")
+    assert cmd[:3] == [u.sys.executable, "-m", "pip"]
+    assert cmd[-1].endswith("@v0.2.0")
+
+
+def test_upgrade_command_pip(monkeypatch):
+    monkeypatch.setattr(u, "install_method", lambda: "pip")
+    cmd = u.upgrade_command("v0.2.0")
+    assert cmd[:4] == [u.sys.executable, "-m", "pip", "install"]
+    assert cmd[-1].endswith("@v0.2.0")
+
+
+def test_cmd_update_already_current(monkeypatch, capsys):
+    from vegito.cli import _cmd_update
+
+    monkeypatch.setattr(u, "latest_version", lambda **kw: "v0.1.1")
+    assert _cmd_update(None) == 0
+    assert "up to date" in capsys.readouterr().out.lower()
+
+
+def test_cmd_update_editable_refuses(monkeypatch):
+    from vegito.cli import _cmd_update
+
+    monkeypatch.setattr(u, "latest_version", lambda **kw: "v99.0.0")
+    monkeypatch.setattr(u, "install_method", lambda: "editable")
+    assert _cmd_update(None) == 1
+
+
+def test_cmd_update_runs_installer(monkeypatch):
+    import types
+
+    import vegito.cli as cli_mod
+    from vegito.cli import _cmd_update
+
+    ran = []
+    monkeypatch.setattr(u, "latest_version", lambda **kw: "v99.0.0")
+    monkeypatch.setattr(u, "install_method", lambda: "pipx")
+    monkeypatch.setattr(u, "upgrade_command",
+                        lambda tag: ["installer", "run", tag])
+    monkeypatch.setattr(
+        cli_mod.subprocess, "run",
+        lambda cmd, **kw: ran.append(cmd)
+        or types.SimpleNamespace(returncode=0))
+    assert _cmd_update(None) == 0
+    assert "v99.0.0" in ran[0]
+
+
+def test_cmd_update_propagates_failure(monkeypatch):
+    import types
+
+    import vegito.cli as cli_mod
+    from vegito.cli import _cmd_update
+
+    monkeypatch.setattr(u, "latest_version", lambda **kw: "v99.0.0")
+    monkeypatch.setattr(u, "install_method", lambda: "pip")
+    monkeypatch.setattr(u, "upgrade_command", lambda tag: ["pip", "install"])
+    monkeypatch.setattr(
+        cli_mod.subprocess, "run",
+        lambda cmd, **kw: types.SimpleNamespace(returncode=3))
+    assert _cmd_update(None) == 3
