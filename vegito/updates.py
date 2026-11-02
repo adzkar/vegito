@@ -137,10 +137,11 @@ def install_method() -> str:
     Editable wins over pipx — `pipx install --editable` leaves a dev tree
     we must not touch. pipx/uv detection keys off sys.prefix path
     components (the venv dir, not the python binary — that symlink
-    resolves outside the venv); a plain substring match could misname an
-    unrelated venv living under a 'pipx'-named directory. 'unknown' means
-    no dist metadata — e.g. `python -m vegito` from a source checkout —
-    so there is nothing an installer could upgrade.
+    resolves outside the venv), requiring the canonical adjacency —
+    'pipx' directly above 'venvs', 'uv' directly above 'tools' — so a
+    stray 'pipx'/'tools' segment elsewhere in the path can't misdetect.
+    'unknown' means no dist metadata — e.g. `python -m vegito` from a
+    source checkout — so there is nothing an installer could upgrade.
     """
     try:
         direct = importlib.metadata.distribution("vegito") \
@@ -152,9 +153,10 @@ def install_method() -> str:
     except Exception:
         pass
     parts = Path(sys.prefix).parts
-    if "pipx" in parts and "venvs" in parts:
+    adjacent = set(zip(parts, parts[1:]))
+    if ("pipx", "venvs") in adjacent:
         return "pipx"
-    if "uv" in parts and "tools" in parts:
+    if ("uv", "tools") in adjacent:
         return "uv"
     return "pip"
 
@@ -164,7 +166,10 @@ def upgrade_command(tag: str) -> list[str]:
 
     pipx/uv get `install --force` (their `upgrade` won't re-pull a VCS
     spec); a tool venv without the binary on PATH falls back to in-place
-    pip, which still updates the package — only the tool's metadata lags.
+    pip. For pipx that still updates the package (its shared-libs pth
+    exposes pip) — only the tool's metadata lags. uv tool venvs ship
+    without pip, so a missing `uv` binary means the fallback fails
+    cleanly and the user must install uv first.
     """
     method = install_method()
     if method == "pipx" and shutil.which("pipx"):

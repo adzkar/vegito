@@ -203,6 +203,14 @@ def test_install_method_uv_tool(monkeypatch):
     assert u.install_method() == "uv"
 
 
+def test_install_method_needs_adjacency(monkeypatch):
+    # Both segments present but not adjacent — no tool owns this venv.
+    _fake_dist(monkeypatch, json.dumps({"dir_info": {"editable": False}}))
+    for prefix in ("/Users/x/venvs/pipx", "/Users/x/tools/uv"):
+        monkeypatch.setattr(u.sys, "prefix", prefix)
+        assert u.install_method() == "pip"
+
+
 def test_upgrade_command_pipx(monkeypatch):
     monkeypatch.setattr(u, "install_method", lambda: "pipx")
     monkeypatch.setattr(u.shutil, "which", lambda name: "/usr/bin/pipx")
