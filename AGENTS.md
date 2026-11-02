@@ -37,7 +37,7 @@ request names, folder grouping, `runtime.scripts`, auth, filled-in values.
 - `vegito/runner.py` — plan execution + report
 - `vegito/wizard.py` — interactive flow; `cli.py` — argparse entry
 - `vegito/updates.py` — GitHub release check (24h cache) + `vegito update`
-  install-method detection (editable / pipx / pip)
+  install-method detection (editable / pipx / uv / pip)
 
 State lives in `<collection>/.merger/` (`state.json`, `reports/`). Skipped
 diffs are remembered by signature and hidden until the schema changes them.
@@ -121,6 +121,8 @@ Conventions observed in the target collection (replicate in `skeleton.py`):
   the collection root.
 - **Bug reports** should include the `diff` output and (sanitized) plan file;
   real schemas/collections may contain credentials — never attach them raw.
+- **Docs shell snippets**: quote extras specs — `pip install -e '.[dev]'`;
+  bare `[dev]` is a zsh glob and fails on the default macOS shell.
 
 ## Commit conventions
 

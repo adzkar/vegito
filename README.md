@@ -10,13 +10,17 @@ lets you review and selectively apply each change.
 
 ## Install
 
-Requires **Python ≥ 3.9** and [pipx](https://pipx.pypa.io) (recommended —
-installs the CLI in an isolated environment):
+Requires **Python ≥ 3.9**; [pipx](https://pipx.pypa.io) recommended —
+it installs the CLI in an isolated environment (a plain `pip install`
+works too):
 
 ```bash
 pipx install git+https://github.com/adzkar/vegito.git
 # first time using pipx: `pipx ensurepath`, then restart your shell
 ```
+
+The VCS spec tracks the default branch — pin a release with
+`…@vX.Y.Z` if you don't want unreleased commits.
 
 Then verify:
 
@@ -28,7 +32,7 @@ For development, install from a checkout instead:
 
 ```bash
 git clone git@github.com:adzkar/vegito.git && cd vegito
-pip install -e .[dev]
+pip install -e '.[dev]'
 ```
 
 You can also run it straight from a checkout — but the interpreter still
@@ -123,7 +127,7 @@ The tool never touches `info.name`, `seq`, `runtime.scripts`, `http.auth`,
 ## Development
 
 ```bash
-pip install -e .[dev]
+pip install -e '.[dev]'
 ruff check .          # lint
 python -m pytest tests/ -q   # tests (synthetic fixtures, no real data)
 ```
