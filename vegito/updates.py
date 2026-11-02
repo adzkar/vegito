@@ -143,18 +143,26 @@ def install_method() -> str:
     binary, whose symlink resolves outside the venv). A hand-made venv
     won't carry one, and the marker travels with the venv, so relocated
     tool homes (PIPX_HOME / UV_TOOL_DIR) still detect. 'unknown' means
-    no dist metadata — e.g. `python -m vegito` from a source checkout —
-    so there is nothing an installer could upgrade.
+    no usable dist metadata — a source checkout, or a direct_url.json
+    that exists but won't parse: PEP 610 writes that file only for
+    direct installs, so an unreadable one may hide `editable: true`
+    and must fail safe rather than risk a dev tree.
     """
     try:
         direct = importlib.metadata.distribution("vegito") \
             .read_text("direct_url.json")
-        if direct and json.loads(direct).get("dir_info", {}).get("editable"):
-            return "editable"
     except importlib.metadata.PackageNotFoundError:
         return "unknown"
     except Exception:
-        pass
+        direct = None
+    if direct:
+        try:
+            editable = json.loads(direct) \
+                .get("dir_info", {}).get("editable")
+        except Exception:
+            return "unknown"
+        if editable:
+            return "editable"
     prefix = Path(sys.prefix)
     if (prefix / "pipx_metadata.json").exists():
         return "pipx"

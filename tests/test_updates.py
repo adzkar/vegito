@@ -202,6 +202,16 @@ def test_install_method_unknown_without_dist(monkeypatch):
     assert u.install_method() == "unknown"
 
 
+def test_install_method_corrupt_direct_url(monkeypatch):
+    # PEP 610 writes direct_url.json only for direct installs — an
+    # unparseable one may hide editable:true, so fail safe to 'unknown'
+    # rather than let the pip fallback convert a dev tree.
+    for bad in ("not json{{{", "[1, 2]"):
+        _fake_dist(monkeypatch, bad)
+        monkeypatch.setattr(u.sys, "prefix", "/usr")
+        assert u.install_method() == "unknown"
+
+
 def test_install_method_uv_tool(tmp_path, monkeypatch):
     venv = tmp_path / "share" / "uv" / "tools" / "vegito"
     venv.mkdir(parents=True)
