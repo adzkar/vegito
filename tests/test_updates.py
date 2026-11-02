@@ -202,14 +202,6 @@ def test_install_method_unknown_without_dist(monkeypatch):
     assert u.install_method() == "unknown"
 
 
-def test_install_method_pipx_needs_path_components(monkeypatch):
-    # A venv under a 'pipx'-named project dir must not misdetect —
-    # match whole path segments, not substrings.
-    _fake_dist(monkeypatch, json.dumps({"dir_info": {"editable": False}}))
-    monkeypatch.setattr(u.sys, "prefix", "/Users/x/proj/pipx-notes/.venv")
-    assert u.install_method() == "pip"
-
-
 def test_install_method_uv_tool(tmp_path, monkeypatch):
     venv = tmp_path / "share" / "uv" / "tools" / "vegito"
     venv.mkdir(parents=True)
@@ -219,25 +211,22 @@ def test_install_method_uv_tool(tmp_path, monkeypatch):
     assert u.install_method() == "uv"
 
 
-def test_install_method_needs_adjacency(monkeypatch):
-    # Both segments present but not adjacent — no tool owns this venv.
-    _fake_dist(monkeypatch, json.dumps({"dir_info": {"editable": False}}))
-    for prefix in ("/Users/x/venvs/pipx", "/Users/x/tools/uv"):
-        monkeypatch.setattr(u.sys, "prefix", prefix)
-        assert u.install_method() == "pip"
-
-
 def test_install_method_needs_marker_file(tmp_path, monkeypatch):
-    # Canonical path shape but no ownership marker — a hand-made venv
-    # the tool never managed must not be claimed.
-    for shape, venv in (
-        (("pipx", "venvs", "vegito"), tmp_path / "a"),
-        (("uv", "tools", "vegito"), tmp_path / "b"),
+    # Path shape alone never claims a tool — only the ownership marker
+    # it writes into managed venvs does. Tool-shaped paths of every
+    # stripe (canonical homes, tool-named dirs, non-adjacent segments,
+    # 'pipx' as a mere substring) all detect as pip without a marker.
+    _fake_dist(monkeypatch, json.dumps({"dir_info": {"editable": False}}))
+    for shape in (
+        ("pipx", "venvs", "vegito"),      # canonical pipx home
+        ("uv", "tools", "vegito"),        # canonical uv tool dir
+        ("venvs", "pipx"),                # segments present, not adjacent
+        ("tools", "uv"),
+        ("proj", "pipx-notes", ".venv"),  # 'pipx' only as a substring
     ):
-        root = venv.joinpath(*shape)
-        root.mkdir(parents=True)
-        _fake_dist(monkeypatch, json.dumps({"dir_info": {"editable": False}}))
-        monkeypatch.setattr(u.sys, "prefix", str(root))
+        venv = tmp_path.joinpath(*shape)
+        venv.mkdir(parents=True)
+        monkeypatch.setattr(u.sys, "prefix", str(venv))
         assert u.install_method() == "pip"
 
 
