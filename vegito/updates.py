@@ -135,25 +135,20 @@ def _vcs_url(tag: str) -> str:
 
 
 def _has_direct_url(dist) -> bool:
-    """True when the dist declares or holds a direct_url.json.
+    """True when the dist declares a direct_url.json in RECORD.
 
     PathDistribution.read_text suppresses missing *and* unreadable
-    member files into a falsy return, so presence must be confirmed
-    elsewhere: RECORD membership (PackagePath entries carry `.name`)
-    or the file sitting on disk. Inconclusive checks count as present
-    — ambiguity fails safe.
+    member files into a falsy return, so presence must come from the
+    file list (PackagePath entries carry `.name`). An inconclusive
+    listing counts as present — ambiguity fails safe.
     """
-    declared = on_disk = None
     try:
-        declared = any(p.name == "direct_url.json"
-                       for p in (dist.files or []))
+        files = dist.files
+        if files is None:
+            return True
+        return any(p.name == "direct_url.json" for p in files)
     except Exception:
-        pass
-    try:
-        on_disk = Path(dist.locate_file("direct_url.json")).exists()
-    except Exception:
-        pass
-    return declared is not False or on_disk is not False
+        return True
 
 
 def install_method() -> str:

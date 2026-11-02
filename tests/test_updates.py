@@ -4,7 +4,6 @@ from __future__ import annotations
 import json
 import sys
 import time
-from pathlib import Path
 from types import SimpleNamespace
 
 import vegito.updates as u
@@ -176,9 +175,6 @@ class _FakeDist:
             return []
         return [SimpleNamespace(name="direct_url.json")]
 
-    def locate_file(self, path):
-        return Path("/nonexistent") / path
-
 
 def _fake_dist(monkeypatch, direct_url):
     monkeypatch.setattr(u.importlib.metadata, "distribution",
@@ -229,30 +225,27 @@ def test_install_method_corrupt_direct_url(monkeypatch):
         assert u.install_method() == "unknown"
 
 
-def test_install_method_unreadable_direct_url(tmp_path, monkeypatch):
+def test_install_method_unreadable_direct_url(monkeypatch):
     # Real PathDistribution.read_text swallows PermissionError into
-    # None — identical to absent — so presence is confirmed via the
-    # filesystem (or RECORD), not the exception.
+    # None — identical to absent — so presence is confirmed via RECORD,
+    # not the exception.
     class UnreadableDist(_FakeDist):
         @property
         def files(self):
-            return []  # not in RECORD
+            return [SimpleNamespace(name="direct_url.json")]
 
-        def locate_file(self, path):
-            return tmp_path / path
-
-    (tmp_path / "direct_url.json").touch()  # on disk, reads back None
     monkeypatch.setattr(u.importlib.metadata, "distribution",
                         lambda name: UnreadableDist(None))
     monkeypatch.setattr(u.sys, "prefix", "/usr")
     assert u.install_method() == "unknown"
 
 
-def test_install_method_no_direct_url_file(tmp_path, monkeypatch):
-    # Registry install: not in RECORD, not on disk — proceeds to 'pip'.
+def test_install_method_no_direct_url_file(monkeypatch):
+    # Registry install: RECORD lists files, none named direct_url.json.
     class RegistryDist(_FakeDist):
-        def locate_file(self, path):
-            return tmp_path / path
+        @property
+        def files(self):
+            return [SimpleNamespace(name="METADATA")]
 
     monkeypatch.setattr(u.importlib.metadata, "distribution",
                         lambda name: RegistryDist(None))
