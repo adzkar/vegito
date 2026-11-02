@@ -1,4 +1,4 @@
-# api-merger
+# vegito
 
 Git-style review tool that syncs a Bruno **opencollection** (YAML-format `.yml`
 request files) with an updated OpenAPI schema. Preserves manual tidying:
@@ -6,38 +6,38 @@ request names, folder grouping, `runtime.scripts`, auth, filled-in values.
 
 ## Commands
 
-- `api-merge` — guided interactive flow (no args): pick schema → pick
+- `vegito` — guided interactive flow (no args): pick schema → pick
   collection → review changes → apply. The primary interface.
-- `api-merge diff --schema X [--collection Y]` — print changeset only.
-- `api-merge plan --schema X -o merge-plan.yml` — write editable plan file.
-- `api-merge apply [merge-plan.yml]` — execute a plan (non-interactive).
-- `api-merge schema-diff OLD.yaml NEW.yaml` — raw changelog between schemas.
+- `vegito diff --schema X [--collection Y]` — print changeset only.
+- `vegito plan --schema X -o merge-plan.yml` — write editable plan file.
+- `vegito apply [merge-plan.yml]` — execute a plan (non-interactive).
+- `vegito schema-diff OLD.yaml NEW.yaml` — raw changelog between schemas.
 
 ## Install / dev
 
 - `pip install -e .` (Python ≥3.9; deps: ruamel.yaml, questionary, rich)
-- `python3 -m api_merger` runs from a checkout — the interpreter still
+- `python3 -m vegito` runs from a checkout — the interpreter still
   needs the deps installed (e.g. in a venv).
 
 ## Layout
 
-- `api_merger/common.py` — path normalization + segment alignment
-- `api_merger/schema.py` — OpenAPI → normalized operations ($ref-resolved)
-- `api_merger/collection.py` — collection dir → normalized requests
-- `api_merger/diff.py` — matching (method + normalized path) + field diffs
-- `api_merger/apply.py` / `skeleton.py` — surgical edits + new-file generation
-- `api_merger/runner.py` — plan execution + report
-- `api_merger/wizard.py` — interactive flow; `cli.py` — argparse entry
+- `vegito/common.py` — path normalization + segment alignment
+- `vegito/schema.py` — OpenAPI → normalized operations ($ref-resolved)
+- `vegito/collection.py` — collection dir → normalized requests
+- `vegito/diff.py` — matching (method + normalized path) + field diffs
+- `vegito/apply.py` / `skeleton.py` — surgical edits + new-file generation
+- `vegito/runner.py` — plan execution + report
+- `vegito/wizard.py` — interactive flow; `cli.py` — argparse entry
 
 State lives in `<collection>/.merger/` (`state.json`, `reports/`). Skipped
 diffs are remembered by signature and hidden until the schema changes them.
 
 ## Operating the tool non-interactively (agents / automation)
 
-The wizard (`api-merge`) needs a TTY — automation should use the plan flow:
+The wizard (`vegito`) needs a TTY — automation should use the plan flow:
 
-1. `api-merge plan --schema X --collection Y -o merge-plan.yml`
-2. Review/edit the plan, then `api-merge apply merge-plan.yml`.
+1. `vegito plan --schema X --collection Y -o merge-plan.yml`
+2. Review/edit the plan, then `vegito apply merge-plan.yml`.
 
 Plan action vocabulary:
 
@@ -101,7 +101,7 @@ Conventions observed in the target collection (replicate in `skeleton.py`):
 
 ## Maintenance notes
 
-- **Version lives in two places**: `api_merger/__init__.py` and
+- **Version lives in two places**: `vegito/__init__.py` and
   `pyproject.toml` — `scripts/release.py patch|minor|major [--push]` bumps
   both, runs the checks, tags `vX.Y.Z`, and with `--push` also pushes and
   creates the GitHub release.
@@ -139,8 +139,8 @@ clone has **no test data** — ask the user for a schema + collection, or
 fabricate files per the primer above:
 
     cp -R samples/bruno-collection /tmp/coll-test
-    api-merge plan --schema samples/SCHEMA.yaml --collection /tmp/coll-test -o /tmp/p.yml
-    api-merge apply /tmp/p.yml
+    vegito plan --schema samples/SCHEMA.yaml --collection /tmp/coll-test -o /tmp/p.yml
+    vegito apply /tmp/p.yml
     diff -r samples/bruno-collection /tmp/coll-test
 
 ## Review checklist (for PRs / changes)

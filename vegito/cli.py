@@ -1,4 +1,4 @@
-"""Command-line entry point. Bare `api-merge` launches the guided flow."""
+"""Command-line entry point. Bare `vegito` launches the guided flow."""
 from __future__ import annotations
 
 import argparse
@@ -77,7 +77,7 @@ def _cmd_plan(args):
     out = Path(args.out or "merge-plan.yml")
     save_plan(changeset_to_plan(changeset, str(schema), root), out)
     console.print(f"Plan written to {out} — edit it, then run "
-                  f"`api-merge apply {out}`")
+                  f"`vegito apply {out}`")
     _print_changeset(changeset)
     return 0
 
@@ -146,7 +146,7 @@ def _cmd_schema_diff(args):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(
-        prog="api-merge",
+        prog="vegito",
         description="Sync a Bruno opencollection with an updated OpenAPI "
                     "schema. Run without arguments for the guided flow.")
     sub = parser.add_subparsers(dest="cmd")
@@ -172,10 +172,11 @@ def main(argv=None):
         try:
             from .wizard import run
         except ImportError as exc:
-            if exc.name and exc.name.startswith("api_merger"):
+            if exc.name and exc.name.startswith("vegito"):
                 raise
             console.print(f"[red]Missing dependency: {exc.name or exc}[/] — "
-                          "install the package first: `pipx install .` "
+                          "install the package first: `pipx install "
+                          "git+https://github.com/adzkar/vegito.git` "
                           "(or `pip install -e .` in a venv).")
             return 1
         run()

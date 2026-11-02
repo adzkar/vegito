@@ -1,4 +1,4 @@
-"""Interactive guided flow — the default `api-merge` experience."""
+"""Interactive guided flow — the default `vegito` experience."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -160,7 +160,7 @@ def _summary_line(changeset: dict) -> str:
 
 
 def run(schema: str | None = None, collection: str | None = None):
-    console.print(Panel.fit("[bold]api-merger[/] — sync your Bruno collection "
+    console.print(Panel.fit("[bold]vegito[/] — sync your Bruno collection "
                             "with a new schema", border_style="cyan"))
     schema_path = Path(schema).expanduser() if schema else _pick_schema()
     if not schema_path:

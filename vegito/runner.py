@@ -141,7 +141,7 @@ def _patch_req_block_url(path: Path, op: dict):
 
 def render_report(report: dict, schema_path: str, root: Path) -> str:
     """Markdown merge report."""
-    lines = ["# api-merger report", "",
+    lines = ["# vegito report", "",
              f"- schema: `{schema_path}`",
              f"- collection: `{root}`",
              f"- date: {datetime.now(timezone.utc):%Y-%m-%d %H:%M UTC}", ""]
