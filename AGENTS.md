@@ -15,9 +15,14 @@ request names, folder grouping, `runtime.scripts`, auth, filled-in values.
 - `vegito update` — upgrade to the latest GitHub release tag; detects the
   install method and shells out to that installer (editable installs are
   refused). `vegito --version` prints the installed version.
+- Interactive runs print a once-a-day "update available" notice on
+  stderr — `VEGITO_NO_UPDATE_CHECK=1` opts out; non-TTY output is never
+  touched.
 
 ## Install / dev
 
+- `pipx install git+https://github.com/adzkar/vegito.git` — isolated CLI
+  install (uninstall: `pipx uninstall vegito`)
 - `pip install -e .` (Python ≥3.9; deps: ruamel.yaml, questionary, rich)
 - `python3 -m vegito` runs from a checkout — the interpreter still
   needs the deps installed (e.g. in a venv).
@@ -31,6 +36,8 @@ request names, folder grouping, `runtime.scripts`, auth, filled-in values.
 - `vegito/apply.py` / `skeleton.py` — surgical edits + new-file generation
 - `vegito/runner.py` — plan execution + report
 - `vegito/wizard.py` — interactive flow; `cli.py` — argparse entry
+- `vegito/updates.py` — GitHub release check (24h cache) + `vegito update`
+  install-method detection (editable / pipx / pip)
 
 State lives in `<collection>/.merger/` (`state.json`, `reports/`). Skipped
 diffs are remembered by signature and hidden until the schema changes them.
