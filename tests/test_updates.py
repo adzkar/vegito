@@ -229,6 +229,21 @@ def test_install_method_needs_marker_file(tmp_path, monkeypatch):
         assert u.install_method() == "pip"
 
 
+def test_install_method_relocated_tool_home(tmp_path, monkeypatch):
+    # PIPX_HOME / UV_TOOL_DIR relocated — the canonical path segments
+    # are gone, but the ownership marker travels with the venv.
+    for marker, shape, expected in (
+        ("pipx_metadata.json", ("opt", "apps", "venvs", "vegito"), "pipx"),
+        ("uv-receipt.toml", ("srv", "toolbox", "vegito"), "uv"),
+    ):
+        venv = tmp_path.joinpath(*shape)
+        venv.mkdir(parents=True)
+        (venv / marker).touch()
+        _fake_dist(monkeypatch, json.dumps({"dir_info": {"editable": False}}))
+        monkeypatch.setattr(u.sys, "prefix", str(venv))
+        assert u.install_method() == expected
+
+
 def test_upgrade_command_pipx(monkeypatch):
     monkeypatch.setattr(u, "install_method", lambda: "pipx")
     monkeypatch.setattr(u.shutil, "which", lambda name: "/usr/bin/pipx")
@@ -289,6 +304,17 @@ def test_cmd_update_unknown_refuses(monkeypatch):
 
     monkeypatch.setattr(u, "latest_version", lambda **kw: "v99.0.0")
     monkeypatch.setattr(u, "install_method", lambda: "unknown")
+    assert _cmd_update(None) == 1
+
+
+def test_cmd_update_none_refuses(monkeypatch):
+    # upgrade_command owns the refusal — a None must not reach
+    # subprocess.run even if the earlier detection disagreed.
+    from vegito.cli import _cmd_update
+
+    monkeypatch.setattr(u, "latest_version", lambda **kw: "v99.0.0")
+    monkeypatch.setattr(u, "install_method", lambda: "pip")
+    monkeypatch.setattr(u, "upgrade_command", lambda tag: None)
     assert _cmd_update(None) == 1
 
 

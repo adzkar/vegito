@@ -135,15 +135,14 @@ def install_method() -> str:
     Returns 'editable' | 'pipx' | 'uv' | 'pip' | 'unknown'.
 
     Editable wins over pipx — `pipx install --editable` leaves a dev tree
-    we must not touch. pipx/uv detection keys off sys.prefix path
-    components (the venv dir, not the python binary — that symlink
-    resolves outside the venv), requiring the canonical adjacency —
-    'pipx' directly above 'venvs', 'uv' directly above 'tools' — then
-    confirms ownership via the marker each tool writes into its venvs
-    (`pipx_metadata.json` / `uv-receipt.toml`), so a hand-made venv at a
-    tool-shaped path can't misdetect. 'unknown' means no dist metadata —
-    e.g. `python -m vegito` from a source checkout — so there is nothing
-    an installer could upgrade.
+    we must not touch. pipx/uv detection trusts the marker each tool
+    writes into the venvs it manages (`pipx_metadata.json` /
+    `uv-receipt.toml` at sys.prefix — the venv dir, not the python
+    binary, whose symlink resolves outside the venv). A hand-made venv
+    won't carry one, and the marker travels with the venv, so relocated
+    tool homes (PIPX_HOME / UV_TOOL_DIR) still detect. 'unknown' means
+    no dist metadata — e.g. `python -m vegito` from a source checkout —
+    so there is nothing an installer could upgrade.
     """
     try:
         direct = importlib.metadata.distribution("vegito") \
@@ -155,12 +154,9 @@ def install_method() -> str:
     except Exception:
         pass
     prefix = Path(sys.prefix)
-    adjacent = set(zip(prefix.parts, prefix.parts[1:]))
-    if ("pipx", "venvs") in adjacent \
-            and (prefix / "pipx_metadata.json").exists():
+    if (prefix / "pipx_metadata.json").exists():
         return "pipx"
-    if ("uv", "tools") in adjacent \
-            and (prefix / "uv-receipt.toml").exists():
+    if (prefix / "uv-receipt.toml").exists():
         return "uv"
     return "pip"
 
