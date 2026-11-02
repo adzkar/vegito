@@ -4,6 +4,8 @@ from __future__ import annotations
 import json
 import sys
 import time
+from pathlib import Path
+from types import SimpleNamespace
 
 import vegito.updates as u
 
@@ -153,7 +155,12 @@ def test_vcs_url_pinned_to_tag():
 
 
 class _FakeDist:
-    """importlib.metadata.Distribution stub with a canned direct_url."""
+    """importlib.metadata.Distribution stub with a canned direct_url.
+
+    Mirrors the real backend: read_text returns content or None (never
+    raises — the standard implementation suppresses I/O errors), and
+    RECORD lists the file iff the stub "has" one.
+    """
 
     def __init__(self, direct_url):
         self.direct_url = direct_url
@@ -161,6 +168,15 @@ class _FakeDist:
     def read_text(self, name):
         assert name == "direct_url.json"
         return self.direct_url
+
+    @property
+    def files(self):
+        if self.direct_url is None:
+            return []
+        return [SimpleNamespace(name="direct_url.json")]
+
+    def locate_file(self, path):
+        return Path("/nonexistent") / path
 
 
 def _fake_dist(monkeypatch, direct_url):
@@ -212,16 +228,35 @@ def test_install_method_corrupt_direct_url(monkeypatch):
         assert u.install_method() == "unknown"
 
 
-def test_install_method_unreadable_direct_url(monkeypatch):
-    # The file exists but can't be read — same ambiguity, same refusal.
+def test_install_method_unreadable_direct_url(tmp_path, monkeypatch):
+    # Real PathDistribution.read_text swallows PermissionError into
+    # None — identical to absent — so presence is confirmed via the
+    # filesystem (or RECORD), not the exception.
     class UnreadableDist(_FakeDist):
-        def read_text(self, name):
-            raise PermissionError(name)
+        @property
+        def files(self):
+            return []  # not in RECORD
 
+        def locate_file(self, path):
+            return tmp_path / path
+
+    (tmp_path / "direct_url.json").touch()  # on disk, reads back None
     monkeypatch.setattr(u.importlib.metadata, "distribution",
                         lambda name: UnreadableDist(None))
     monkeypatch.setattr(u.sys, "prefix", "/usr")
     assert u.install_method() == "unknown"
+
+
+def test_install_method_no_direct_url_file(tmp_path, monkeypatch):
+    # Registry install: not in RECORD, not on disk — proceeds to 'pip'.
+    class RegistryDist(_FakeDist):
+        def locate_file(self, path):
+            return tmp_path / path
+
+    monkeypatch.setattr(u.importlib.metadata, "distribution",
+                        lambda name: RegistryDist(None))
+    monkeypatch.setattr(u.sys, "prefix", "/usr")
+    assert u.install_method() == "pip"
 
 
 def test_install_method_uv_tool(tmp_path, monkeypatch):

@@ -131,6 +131,28 @@ def _vcs_url(tag: str) -> str:
     return f"git+https://github.com/{GITHUB_REPO}.git@{tag}"
 
 
+def _has_direct_url(dist) -> bool:
+    """True when the dist declares or holds a direct_url.json.
+
+    PathDistribution.read_text suppresses missing *and* unreadable
+    member files into a falsy return, so presence must be confirmed
+    elsewhere: RECORD membership (PackagePath entries carry `.name`)
+    or the file sitting on disk. Inconclusive checks count as present
+    — ambiguity fails safe.
+    """
+    declared = on_disk = None
+    try:
+        declared = any(p.name == "direct_url.json"
+                       for p in (dist.files or []))
+    except Exception:
+        pass
+    try:
+        on_disk = Path(dist.locate_file("direct_url.json")).exists()
+    except Exception:
+        pass
+    return declared is not False or on_disk is not False
+
+
 def install_method() -> str:
     """How this vegito was installed.
 
@@ -149,24 +171,30 @@ def install_method() -> str:
     `editable: true` and must fail safe rather than risk a dev tree.
     """
     try:
-        direct = importlib.metadata.distribution("vegito") \
-            .read_text("direct_url.json")
+        dist = importlib.metadata.distribution("vegito")
     except importlib.metadata.PackageNotFoundError:
         return "unknown"
-    except FileNotFoundError:
-        direct = None  # no direct_url.json — ordinary registry install
     except Exception:
-        # dist metadata exists but is unreadable — ambiguous, refuse.
+        # dist metadata exists but can't be queried — ambiguous.
         return "unknown"
-    if direct is not None:
+    try:
+        direct = dist.read_text("direct_url.json")
+    except Exception:
+        direct = None
+    if direct:
         try:
             editable = json.loads(direct) \
                 .get("dir_info", {}).get("editable")
         except Exception:
-            # present but unparseable/empty — ambiguous, refuse.
+            # present but unparseable — ambiguous, refuse.
             return "unknown"
         if editable:
             return "editable"
+    elif _has_direct_url(dist):
+        # read_text suppresses absent and unreadable alike into a falsy
+        # return — a file that should be there means the contents were
+        # unreadable or empty, which may hide `editable: true`.
+        return "unknown"
     prefix = Path(sys.prefix)
     if (prefix / "pipx_metadata.json").exists():
         return "pipx"
