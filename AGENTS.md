@@ -15,8 +15,9 @@ request names, folder grouping, `runtime.scripts`, auth, filled-in values.
 - `vegito update` — upgrade to the latest GitHub release tag; detects the
   install method and shells out to that installer (editable installs are
   refused). `vegito --version` prints the installed version.
-- Interactive runs print a once-a-day "update available" notice on
-  stderr — `VEGITO_NO_UPDATE_CHECK=1` opts out; non-TTY output is never
+- Interactive runs print an "update available" notice on stderr while a
+  newer release exists — the release check runs once a day at most (24h
+  cache). `VEGITO_NO_UPDATE_CHECK=1` opts out; non-TTY output is never
   touched.
 
 ## Install / dev
