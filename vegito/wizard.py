@@ -18,12 +18,20 @@ from .schema import load_schema, parse_operations
 console = Console()
 
 
+def _display_path(p) -> str:
+    """Path for prompts/messages: relative to cwd when inside it."""
+    try:
+        return str(Path(p).resolve().relative_to(Path.cwd().resolve()))
+    except ValueError:
+        return str(Path(p))
+
+
 def _pick_schema() -> Path | None:
     candidates = sorted(
         [p for p in Path.cwd().iterdir()
          if p.suffix in (".yaml", ".yml", ".json") and p.is_file()],
         key=lambda p: p.stat().st_mtime, reverse=True)
-    default = str(candidates[0]) if candidates else ""
+    default = _display_path(candidates[0]) if candidates else ""
     answer = questionary.path(
         "Path to the new OpenAPI schema:",
         default=default,
@@ -36,7 +44,7 @@ def _pick_collection() -> Path | None:
     detected = find_collection_root(Path.cwd())
     answer = questionary.path(
         "Path to the Bruno collection:",
-        default=str(detected or Path.cwd()),
+        default=_display_path(detected or Path.cwd()),
         validate=lambda p: (Path(p).expanduser().is_dir())
         or "directory not found",
     ).ask()
@@ -216,4 +224,4 @@ def run(schema: str | None = None, collection: str | None = None):
     if report["errors"]:
         console.print(f"[bold red]{len(report['errors'])} errors[/] — "
                       "see report")
-    console.print(f"Report: {report_path}")
+    console.print(f"Report: {_display_path(report_path)}")
