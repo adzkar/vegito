@@ -411,6 +411,27 @@ def test_create_request_uses_custom_name(coll):
     assert doc["info"]["name"] == "get users"
 
 
+def test_yaml_scalar_quotes_ambiguous_values():
+    """Bare scalars that would re-load as non-strings get quoted."""
+    from vegito.skeleton import _yaml_scalar
+    for v in ["- foo", "? x", "123", "true", "null", "~", "1.5", "0x10",
+              "2024-01-01", "foo ", "on", "a\tb", "---", "{k: v}"]:
+        assert _yaml.load(_yaml_scalar("name", v))["name"] == v, v
+
+
+def test_create_request_quotes_yamlish_name(coll):
+    """A custom name needing quotes still lands verbatim in info.name."""
+    from vegito.apply import create_request
+    root, _, _ = coll
+    op = {"operation_id": "x", "method": "get", "path": "/x/",
+          "norm": "/x", "path_params": [], "query": {}, "headers": {},
+          "body": {}, "auth_required": False, "responses": {}, "tags": [],
+          "description": ""}
+    path = create_request(root, "demo", op, "- foo")
+    doc = _yaml.load(path.read_text())
+    assert doc["info"]["name"] == "- foo"
+
+
 def test_new_folder_offered_for_next_endpoint(monkeypatch):
     """A folder typed for one added endpoint is a choice for the next."""
     from vegito import wizard

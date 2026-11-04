@@ -5,7 +5,14 @@ import json
 import re
 from http import HTTPStatus
 
+from ruamel.yaml import YAML
+
 from .common import schema_path_to_bruno
+
+_safe = YAML(typ="safe")
+
+_YAML11_BOOL_WORDS = frozenset(
+    {"y", "yes", "n", "no", "on", "off"})
 
 _SETTINGS = """\
 settings:
@@ -40,12 +47,27 @@ def _response_template(op: dict) -> tuple[str, str, dict]:
     return "200", "OK", {}
 
 
+def _needs_quotes(value: str) -> bool:
+    """True when a bare scalar could re-load as something other than
+    ``value`` — indicator chars, YAML-typed words (int/bool/null/date),
+    or words YAML 1.1 readers still resolve as booleans."""
+    if re.search(r"(^[\s!&*\[\]{},#|>@`\"'])|(: )|( #)|(:$)", value):
+        return True
+    if value.lower() in _YAML11_BOOL_WORDS:
+        return True
+    try:
+        loaded = _safe.load(value)
+    except Exception:
+        return True
+    return not (isinstance(loaded, str) and loaded == value)
+
+
 def _yaml_scalar(key: str, value: str, indent: str = "") -> str:
     """Render ``key: value`` quoting/-blocking only when needed."""
     if "\n" in value:
         block = "\n".join(indent + "  " + line for line in value.splitlines())
         return f"{indent}{key}: |-\n{block}"
-    if re.search(r"(^[\s!&*\[\]{},#|>@`\"'])|(: )|( #)|(:$)", value):
+    if _needs_quotes(value):
         return f"{indent}{key}: {json.dumps(value)}"
     return f"{indent}{key}: {value}"
 
