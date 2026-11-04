@@ -236,6 +236,7 @@ def patch_request_file(path: Path, diffs: list[dict]):
 # ---------- file-level operations ----------
 
 def create_request(root: Path, folder: str, op: dict, name: str | None) -> Path:
+    name = (name or "").strip() or None
     target_dir = (root / folder).resolve() if folder else root
     if not str(target_dir).startswith(str(root.resolve()) + "/") \
             and target_dir != root.resolve():

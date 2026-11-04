@@ -478,3 +478,19 @@ def test_new_folder_offered_for_next_endpoint(monkeypatch):
     assert wizard._review(changeset, ["demo"]) is True
     assert "web" in seen_choices[1]
     assert changeset["added"][0]["folder"] == "web"
+
+
+def test_create_request_strips_name(coll):
+    """Padded/blank names normalize so filename and info.name agree."""
+    from vegito.apply import create_request
+    root, _, _ = coll
+    op = {"operation_id": "web_get_users", "method": "get", "path": "/x/",
+          "norm": "/x", "path_params": [], "query": {}, "headers": {},
+          "body": {}, "auth_required": False, "responses": {}, "tags": [],
+          "description": ""}
+    path = create_request(root, "demo", op, "  padded  ")
+    assert path.name == "padded.yml"
+    assert _yaml.load(path.read_text())["info"]["name"] == "padded"
+    blank = create_request(root, "demo", op, "   ")
+    assert blank.name == "web_get_users.yml"
+    assert _yaml.load(blank.read_text())["info"]["name"] == "web_get_users"
