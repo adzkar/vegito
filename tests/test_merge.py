@@ -409,3 +409,42 @@ def test_create_request_uses_custom_name(coll):
     assert path.name == "get users.yml"
     doc = _yaml.load(path.read_text())
     assert doc["info"]["name"] == "get users"
+
+
+def test_new_folder_offered_for_next_endpoint(monkeypatch):
+    """A folder typed for one added endpoint is a choice for the next."""
+    from vegito import wizard
+
+    class _Ask:
+        def __init__(self, result):
+            self.result = result
+
+        def ask(self):
+            return self.result
+
+    def op(pid):
+        return {"method": "get", "path": f"/{pid}/", "operation_id": pid}
+
+    changeset = {"added": [{"operation": op("a"), "action": "add",
+                            "folder": None, "name": "a"},
+                           {"operation": op("b"), "action": "add",
+                            "folder": None, "name": "b"}],
+                 "removed": [], "moved": [], "changed": []}
+    selects = iter(["+ New folder…", "web"])
+    seen_choices = []
+
+    def fake_select(_msg, choices=None, default=None):
+        seen_choices.append(list(choices))
+        return _Ask(next(selects))
+
+    monkeypatch.setattr(wizard.questionary, "checkbox",
+                        lambda *a, **k: _Ask([0, 1]))
+    monkeypatch.setattr(wizard.questionary, "select", fake_select)
+    monkeypatch.setattr(wizard.questionary, "path",
+                        lambda *a, **k: _Ask("web"))
+    monkeypatch.setattr(wizard.questionary, "text",
+                        lambda *a, **k: _Ask("req"))
+
+    assert wizard._review(changeset, ["demo"]) is True
+    assert "web" in seen_choices[1]
+    assert changeset["added"][0]["folder"] == "web"

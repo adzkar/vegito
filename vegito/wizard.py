@@ -82,6 +82,9 @@ def _review(changeset: dict, dirs: list[str]) -> bool:
                 if folder is None:
                     return False
                 folder = folder.strip().strip("/")
+                if folder and folder not in dirs:
+                    dirs.append(folder)
+                    dirs.sort()
             item["folder"] = folder
             name = questionary.text(
                 "Request name:", default=item["name"]).ask()
