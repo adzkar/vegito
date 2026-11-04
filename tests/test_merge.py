@@ -397,6 +397,41 @@ def test_folder_escape_rejected(coll, tmp_path):
         create_request(root, "../evil", op, None)
 
 
+def test_create_request_uses_custom_name(coll):
+    """The plan's request name lands in info.name, not just the file name."""
+    from vegito.apply import create_request
+    root, _, _ = coll
+    op = {"operation_id": "web_get_users", "method": "get", "path": "/x/",
+          "norm": "/x", "path_params": [], "query": {}, "headers": {},
+          "body": {}, "auth_required": False, "responses": {}, "tags": [],
+          "description": ""}
+    path = create_request(root, "demo", op, "get users")
+    assert path.name == "get users.yml"
+    doc = _yaml.load(path.read_text())
+    assert doc["info"]["name"] == "get users"
+
+
+def test_yaml_scalar_quotes_ambiguous_values():
+    """Bare scalars that would re-load as non-strings get quoted."""
+    from vegito.skeleton import _yaml_scalar
+    for v in ["- foo", "? x", "123", "true", "null", "~", "1.5", "0x10",
+              "2024-01-01", "foo ", "on", "a\tb", "---", "{k: v}"]:
+        assert _yaml.load(_yaml_scalar("name", v))["name"] == v, v
+
+
+def test_create_request_quotes_yamlish_name(coll):
+    """A custom name needing quotes still lands verbatim in info.name."""
+    from vegito.apply import create_request
+    root, _, _ = coll
+    op = {"operation_id": "x", "method": "get", "path": "/x/",
+          "norm": "/x", "path_params": [], "query": {}, "headers": {},
+          "body": {}, "auth_required": False, "responses": {}, "tags": [],
+          "description": ""}
+    path = create_request(root, "demo", op, "- foo")
+    doc = _yaml.load(path.read_text())
+    assert doc["info"]["name"] == "- foo"
+
+
 def test_display_path_prefers_cwd_relative(tmp_path, monkeypatch):
     """Wizard prompts show paths relative to the invocation dir."""
     from vegito.wizard import _display_path
@@ -443,3 +478,19 @@ def test_new_folder_offered_for_next_endpoint(monkeypatch):
     assert wizard._review(changeset, ["demo"]) is True
     assert "web" in seen_choices[1]
     assert changeset["added"][0]["folder"] == "web"
+
+
+def test_create_request_strips_name(coll):
+    """Padded/blank names normalize so filename and info.name agree."""
+    from vegito.apply import create_request
+    root, _, _ = coll
+    op = {"operation_id": "web_get_users", "method": "get", "path": "/x/",
+          "norm": "/x", "path_params": [], "query": {}, "headers": {},
+          "body": {}, "auth_required": False, "responses": {}, "tags": [],
+          "description": ""}
+    path = create_request(root, "demo", op, "  padded  ")
+    assert path.name == "padded.yml"
+    assert _yaml.load(path.read_text())["info"]["name"] == "padded"
+    blank = create_request(root, "demo", op, "   ")
+    assert blank.name == "web_get_users.yml"
+    assert _yaml.load(blank.read_text())["info"]["name"] == "web_get_users"

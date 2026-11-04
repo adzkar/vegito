@@ -109,6 +109,10 @@ Conventions observed in the target collection (replicate in `skeleton.py`):
   `keep` records them in `manual_files` so they stop being flagged.
 - `data: |-` literal blocks: no trailing newline in `LiteralScalarString`,
   or ruamel emits `data: |` instead.
+- **Hand-emitted scalars** (`skeleton.py` `_yaml_scalar`) must round-trip as
+  the exact string — a bare `name: 123`/`- foo`/`on` mis-parses or errors.
+  `_needs_quotes` re-loads the candidate and quotes on any mismatch; keep it
+  as the gate for every scalar the generator writes.
 
 ## Maintenance notes
 

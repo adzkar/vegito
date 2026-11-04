@@ -236,6 +236,7 @@ def patch_request_file(path: Path, diffs: list[dict]):
 # ---------- file-level operations ----------
 
 def create_request(root: Path, folder: str, op: dict, name: str | None) -> Path:
+    name = (name or "").strip() or None
     target_dir = (root / folder).resolve() if folder else root
     if not str(target_dir).startswith(str(root.resolve()) + "/") \
             and target_dir != root.resolve():
@@ -247,7 +248,7 @@ def create_request(root: Path, folder: str, op: dict, name: str | None) -> Path:
     while path.exists():
         path = target_dir / f"{safe_filename(name or op['operation_id'])}-{n}.yml"
         n += 1
-    path.write_text(render_request_file(op, next_seq(target_dir)))
+    path.write_text(render_request_file(op, next_seq(target_dir), name))
     return path
 
 
