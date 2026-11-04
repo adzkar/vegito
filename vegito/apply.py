@@ -247,7 +247,7 @@ def create_request(root: Path, folder: str, op: dict, name: str | None) -> Path:
     while path.exists():
         path = target_dir / f"{safe_filename(name or op['operation_id'])}-{n}.yml"
         n += 1
-    path.write_text(render_request_file(op, next_seq(target_dir)))
+    path.write_text(render_request_file(op, next_seq(target_dir), name))
     return path
 
 

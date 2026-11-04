@@ -395,3 +395,17 @@ def test_folder_escape_rejected(coll, tmp_path):
           "description": ""}
     with pytest.raises(ValueError):
         create_request(root, "../evil", op, None)
+
+
+def test_create_request_uses_custom_name(coll):
+    """The plan's request name lands in info.name, not just the file name."""
+    from vegito.apply import create_request
+    root, _, _ = coll
+    op = {"operation_id": "web_get_users", "method": "get", "path": "/x/",
+          "norm": "/x", "path_params": [], "query": {}, "headers": {},
+          "body": {}, "auth_required": False, "responses": {}, "tags": [],
+          "description": ""}
+    path = create_request(root, "demo", op, "get users")
+    assert path.name == "get users.yml"
+    doc = _yaml.load(path.read_text())
+    assert doc["info"]["name"] == "get users"

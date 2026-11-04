@@ -102,14 +102,15 @@ def _request_lines(op: dict, indent: str, url: str,
     return lines
 
 
-def render_request_file(op: dict, seq: int) -> str:
+def render_request_file(op: dict, seq: int,
+                        name: str | None = None) -> str:
     """Full .yml text for a new request, mirroring the collection's style."""
     url = "{{baseUrl}}" + schema_path_to_bruno(op["path"])
     status, phrase, resp_tpl = _response_template(op)
     parts: list[str] = []
 
-    info = ["info:", f"  name: {op['operation_id']}", "  type: http",
-            f"  seq: {seq}"]
+    info = ["info:", _yaml_scalar("name", name or op["operation_id"], "  "),
+            "  type: http", f"  seq: {seq}"]
     if op["tags"]:
         info += ["  tags:", f"    - {op['tags'][0]}"]
     parts.append("\n".join(info))
