@@ -397,6 +397,15 @@ def test_folder_escape_rejected(coll, tmp_path):
         create_request(root, "../evil", op, None)
 
 
+def test_display_path_prefers_cwd_relative(tmp_path, monkeypatch):
+    """Wizard prompts show paths relative to the invocation dir."""
+    from vegito.wizard import _display_path
+    monkeypatch.chdir(tmp_path)
+    assert _display_path(tmp_path / "sub" / "s.yaml") == "sub/s.yaml"
+    assert _display_path(tmp_path) == "."
+    assert _display_path("/etc/hostname") == "/etc/hostname"
+
+
 def test_new_folder_offered_for_next_endpoint(monkeypatch):
     """A folder typed for one added endpoint is a choice for the next."""
     from vegito import wizard
