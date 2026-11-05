@@ -628,6 +628,23 @@ def test_conventions_modal_min2():
     assert blanks["headers"] == {} and blanks["auth"] is None
 
 
+def test_conventions_tie_break_is_deterministic():
+    """A modal-vote tie resolves lexicographically, not by scan order."""
+    from vegito.collection import collection_conventions
+
+    def req(v):
+        return {"headers": {"x-org-key": {"name": "X-Org-Key",
+                                          "value": v}},
+                "auth": None}
+
+    forward = collection_conventions(
+        [req("{{b}}"), req("{{a}}"), req("{{b}}"), req("{{a}}")])
+    reverse = collection_conventions(
+        [req("{{a}}"), req("{{b}}"), req("{{a}}"), req("{{b}}")])
+    assert forward["headers"]["x-org-key"]["value"] == \
+        reverse["headers"]["x-org-key"]["value"] == "{{a}}"
+
+
 def test_convention_outlier_diff():
     """Requests deviating from the convention get a 'convention' diff."""
     from vegito.diff import diff_endpoint

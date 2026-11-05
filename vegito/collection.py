@@ -134,16 +134,22 @@ def collection_conventions(reqs: list[dict]) -> dict:
             a_configs[key] = dict(cfg)
     headers = {}
     for lname, votes in h_votes.items():
-        value, count = votes.most_common(1)[0]
+        value, count = _modal(votes)
         if count >= 2:
             headers[lname] = {"name": h_names[lname], "value": value,
                               "count": count}
     auth = None
     if a_votes:
-        key, count = a_votes.most_common(1)[0]
+        key, count = _modal(a_votes)
         if count >= 2:
             auth = {"config": a_configs[key], "count": count}
     return {"headers": headers, "auth": auth}
+
+
+def _modal(votes):
+    """Return the winning ``(value, count)``; ties break lexicographically
+    so the result doesn't depend on collection scan order."""
+    return sorted(votes.items(), key=lambda kv: (-kv[1], str(kv[0])))[0]
 
 
 def format_conventions(conventions: dict | None) -> str:
