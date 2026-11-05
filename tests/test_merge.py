@@ -905,6 +905,32 @@ def test_execute_plan_tolerates_malformed_conventions_block(tmp_path):
         assert (root / f"f/y{i}.yml").exists()
 
 
+def test_execute_plan_regenerate_honors_declined_proposals(tmp_path):
+    """The apply-side regeneration path honors declined_proposals — a
+    legacy plan lacking the block must not write declined vars."""
+    from vegito.collection import collection_proposals
+    from vegito.common import fingerprint
+    root = tmp_path / "coll"
+    root.mkdir()
+    matched = _op_with_header()
+    added = dict(_op_with_header(), operation_id="y", path="/y/",
+                 norm="/y")
+    reqs = _blank_reqs()
+    prop = collection_proposals(reqs, set(), {"x-org-key"})
+    manifest = load_manifest(root)
+    manifest["declined_proposals"] = [
+        "header:x-org-key:" + prop["headers"]["x-org-key"]["value"],
+        "auth:" + fingerprint(prop["auth"]["config"])]
+    plan = {"added": [{"operation": added, "action": "add", "folder": "f",
+                       "name": "y"}],
+            "removed": [], "moved": [], "changed": []}  # no conventions
+    report = execute_plan(root, plan, [matched, added], reqs, manifest)
+    assert not report["errors"], report["errors"]
+    assert plan["conventions"]["headers"] == {}
+    assert plan["conventions"]["auth"] is None
+    assert "{{org_key}}" not in (root / "f/y.yml").read_text()
+
+
 def test_conventions_modal_min2():
     """Modal header value/auth config wins only with >=2 uses."""
     from vegito.collection import collection_conventions

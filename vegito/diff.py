@@ -329,6 +329,24 @@ def _sig_for_diff(d: dict, op: dict) -> str:
     return fingerprint({"k": key, "v": op_key, "c": d["change"]})
 
 
+def filter_declined_proposals(conventions: dict,
+                              manifest: dict | None) -> dict:
+    """Drop cold-start proposal entries whose decline signature the
+    manifest remembers — a declined suggestion must not regenerate on
+    the next run. The sig covers the proposed value, so a renamed var
+    re-asks. Returns a fresh ``{"headers", "auth"}`` map."""
+    declined = set((manifest or {}).get("declined_proposals") or [])
+    headers = {k: c for k, c in
+               ((conventions or {}).get("headers") or {}).items()
+               if not (isinstance(c, dict)
+                       and f"header:{k}:{c.get('value')}" in declined)}
+    auth = (conventions or {}).get("auth")
+    if declined and isinstance(auth, dict) \
+            and f"auth:{fingerprint(auth.get('config'))}" in declined:
+        auth = None
+    return {"headers": headers, "auth": auth}
+
+
 def build_changeset(ops: list[dict], reqs: list[dict],
                     manifest: dict | None,
                     root: str | Path | None = None) -> dict:
@@ -400,17 +418,7 @@ def build_changeset(ops: list[dict], reqs: list[dict],
         declared |= {lname for a in added for lname in a["operation"]["headers"]}
         conventions = collection_proposals(survivors, env_var_names(root),
                                            declared)
-        # Declines the wizard recorded stay declined — a cold collection
-        # re-derives the same suggestions every run otherwise. The sig
-        # covers the proposed value, so a renamed var re-asks.
-        declined = set(manifest.get("declined_proposals") or [])
-        if declined:
-            conventions["headers"] = {
-                k: c for k, c in conventions["headers"].items()
-                if f"header:{k}:{c.get('value')}" not in declined}
-            a = conventions.get("auth")
-            if a and f"auth:{fingerprint(a.get('config'))}" in declined:
-                conventions["auth"] = None
+        conventions = filter_declined_proposals(conventions, manifest)
 
     for op, req in matched:
         state_key = f"{op['method']} {op['norm']}"

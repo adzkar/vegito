@@ -7,7 +7,12 @@ from pathlib import Path
 from . import manifest as mf
 from .apply import archive_file, create_request, delete_file, patch_request_file
 from .collection import collection_conventions, collection_proposals, env_var_names
-from .diff import _sig_for_diff, _skip_key, retarget_convention_diffs
+from .diff import (
+    _sig_for_diff,
+    _skip_key,
+    filter_declined_proposals,
+    retarget_convention_diffs,
+)
 
 
 def _ep(method: str, path: str) -> str:
@@ -93,6 +98,7 @@ def execute_plan(root: Path, plan: dict, ops: list[dict], reqs: list[dict],
                 for lname in (a.get("operation") or {}).get("headers", {})}
             conventions = collection_proposals(
                 survivors, env_var_names(root), declared)
+            conventions = filter_declined_proposals(conventions, manifest)
             sources.append("regenerated proposals")
     conv_source = " + ".join(sources) or "the survivor re-vote"
     plan["conventions"] = conventions
