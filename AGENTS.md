@@ -32,7 +32,8 @@ request names, folder grouping, `runtime.scripts`, auth, filled-in values.
 
 - `vegito/common.py` — path normalization + segment alignment
 - `vegito/schema.py` — OpenAPI → normalized operations ($ref-resolved)
-- `vegito/collection.py` — collection dir → normalized requests
+- `vegito/collection.py` — collection dir → normalized requests +
+  convention inference (modal header values / auth config, ≥2 uses win)
 - `vegito/diff.py` — matching (method + normalized path) + field diffs
 - `vegito/apply.py` / `skeleton.py` — surgical edits + new-file generation
 - `vegito/runner.py` — plan execution + report
@@ -59,6 +60,10 @@ Plan action vocabulary:
 - `moved[].action`: `move` (rewrite file URL to new path) | `skip`.
 - `changed[].diffs[].action`: `apply` | `skip` (remembered by signature) |
   `note` (informational only, e.g. response-shape notes).
+- `conventions`: inferred collection conventions (`headers.<lname>` →
+  modal `value`, `auth.config` → modal auth dict; each with vote `count`).
+  New skeletons inherit them; `change: "convention"` diffs flag matched
+  requests that deviate (`apply` rewrites the field to the convention).
 
 ## Domain primer (opencollection format)
 
@@ -107,6 +112,10 @@ Conventions observed in the target collection (replicate in `skeleton.py`):
   the specific field a diff names.
 - **Manual files**: files matching nothing in the schema would look "removed";
   `keep` records them in `manual_files` so they stop being flagged.
+- **Conventions** (`collection_conventions`): modal header value / auth
+  config wins with ≥2 uses. New skeletons inherit them; requests *carrying*
+  a deviating value get an opt-in `convention` diff — a missing field or
+  `auth: inherit` is never flagged (can't tell deliberate inheritance).
 - `data: |-` literal blocks: no trailing newline in `LiteralScalarString`,
   or ruamel emits `data: |` instead.
 - **Hand-emitted scalars** (`skeleton.py` `_yaml_scalar`) must round-trip as
