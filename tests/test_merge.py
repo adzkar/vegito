@@ -1268,6 +1268,18 @@ def test_cold_start_proposals(tmp_path):
     assert any(d["change"] == "convention" for i in cs["changed"]
                for d in i["diffs"])
 
+    # a recurring header no op declares is dead weight — never proposed
+    for r in reqs:
+        r["headers"]["content-type"] = {"name": "Content-Type", "value": ""}
+    cs = build_changeset([op], reqs, None, tmp_path)
+    assert set(cs["conventions"]["headers"]) == {"x-custom-key"}
+    # ...unless an added op can inherit it in a skeleton
+    op2 = dict(op, operation_id="y", path="/y/", norm="/y",
+               headers={"content-type": {"name": "Content-Type"}})
+    cs = build_changeset([op, op2], reqs, None, tmp_path)
+    assert set(cs["conventions"]["headers"]) == {"x-custom-key",
+                                                 "content-type"}
+
     cold_no_root = build_changeset([op], reqs, None)
     assert not cold_no_root["conventions"]["headers"]
     warm = build_changeset(

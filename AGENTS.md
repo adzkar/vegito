@@ -130,7 +130,9 @@ Conventions observed in the target collection (replicate in `skeleton.py`):
 - **Cold-start proposals** (`collection_proposals`): when inference finds
   *nothing* and `build_changeset` gets a `root`, recurring header names /
   bearer auth yield `proposed: true` env-var suggestions — the wizard asks
-  per var (plan files get derived defaults). `retarget_convention_diffs`
+  per var (plan files get derived defaults). Only headers a matched or
+  added op declares are proposed (an op-less header could never be
+  consumed). `retarget_convention_diffs`
   re-syncs diffs after renames or plan `conventions:` edits — call it
   before applying, never write to `environments/*.yml`.
 - `data: |-` literal blocks: no trailing newline in `LiteralScalarString`,

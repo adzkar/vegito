@@ -311,7 +311,12 @@ def build_changeset(ops: list[dict], reqs: list[dict],
     conventions = collection_conventions(survivors)
     if root is not None and not conventions["headers"] \
             and not conventions["auth"]:
-        conventions = collection_proposals(survivors, env_var_names(root))
+        # Only headers an op declares can be consumed — matched ops emit
+        # convention diffs, added ops inherit skeleton values.
+        declared = {lname for op, _ in matched for lname in op["headers"]}
+        declared |= {lname for a in added for lname in a["operation"]["headers"]}
+        conventions = collection_proposals(survivors, env_var_names(root),
+                                           declared)
 
     for op, req in matched:
         state_key = f"{op['method']} {op['norm']}"

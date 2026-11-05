@@ -206,12 +206,17 @@ def _derive_var_name(header: str, env_names: set[str]) -> str:
 
 
 def collection_proposals(reqs: list[dict],
-                         env_names: set[str] | None = None) -> dict:
+                         env_names: set[str] | None = None,
+                         declared: set[str] | None = None) -> dict:
     """Cold-start convention proposals for collections with no inferred
     conventions: ``{{var}}`` refs for header *names* recurring in >=2
     requests, and a ``{{token}}`` bearer config when >=2 bearer blocks
     exist. Returns the collection_conventions() shape with entries marked
     ``proposed: True`` — suggestions, not observed votes.
+
+    ``declared`` limits header proposals to lnames some operation declares —
+    a header no op asks for could never produce a convention diff or a
+    skeleton value, so proposing a var for it would be dead weight.
     """
     env_names = env_names or set()
     h_count: dict[str, int] = {}
@@ -226,7 +231,7 @@ def collection_proposals(reqs: list[dict],
             bearer += 1
     headers = {}
     for lname, count in h_count.items():
-        if count < 2:
+        if count < 2 or (declared is not None and lname not in declared):
             continue
         var = _derive_var_name(h_names[lname], env_names)
         headers[lname] = {"name": h_names[lname],
