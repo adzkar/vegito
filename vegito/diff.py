@@ -113,8 +113,10 @@ def retarget_convention_diffs(container: dict) -> None:
     not recomputed over ``changed``, since signature-skipped diffs on
     fully-hidden matched items never entered it and still count.
     """
-    conv = container.get("conventions") or {}
-    headers = conv.get("headers") or {}
+    conv = container.get("conventions")
+    conv = conv if isinstance(conv, dict) else {}
+    headers = conv.get("headers")
+    headers = headers if isinstance(headers, dict) else {}
     auth = conv.get("auth")
     skipped_lost = 0
     changed = []

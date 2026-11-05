@@ -885,6 +885,26 @@ def test_declined_proposals_do_not_resurface(tmp_path):
     assert "x-org-key" in cs["conventions"]["headers"]
 
 
+def test_execute_plan_tolerates_malformed_conventions_block(tmp_path):
+    """A truthy non-mapping conventions block (or headers side) degrades
+    instead of crashing apply before the per-item loops."""
+    root = tmp_path / "coll"
+    root.mkdir()
+    matched = _op_with_header()
+    added = dict(_op_with_header(), operation_id="y", path="/y/",
+                 norm="/y")
+    for i, bad in enumerate(["oops", 5, ["x"], {"headers": "oops"},
+                             {"headers": ["x"]}]):
+        plan = {"added": [{"operation": added, "action": "add",
+                           "folder": "f", "name": f"y{i}"}],
+                "removed": [], "moved": [], "changed": [],
+                "conventions": bad}
+        report = execute_plan(root, plan, [matched, added],
+                              _blank_reqs(), load_manifest(root))
+        assert not report["errors"], (bad, report["errors"])
+        assert (root / f"f/y{i}.yml").exists()
+
+
 def test_conventions_modal_min2():
     """Modal header value/auth config wins only with >=2 uses."""
     from vegito.collection import collection_conventions

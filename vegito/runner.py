@@ -50,8 +50,10 @@ def execute_plan(root: Path, plan: dict, ops: list[dict], reqs: list[dict],
         # (a proposed header loses to a live header vote). Entries lacking
         # a usable value/config are malformed, not proposals.
         block = planned_conv if isinstance(planned_conv, dict) else {}
+        hb = block.get("headers")
+        hb = hb if isinstance(hb, dict) else {}
         proposed = {
-            "headers": {k: c for k, c in (block.get("headers") or {}).items()
+            "headers": {k: c for k, c in hb.items()
                         if isinstance(c, dict) and c.get("proposed")
                         and c.get("value")},
             "auth": block.get("auth")
