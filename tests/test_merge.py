@@ -895,6 +895,37 @@ def test_convention_apply_patches_all_examples(tmp_path):
         ["{{org}}", "{{org}}"]
 
 
+def test_removed_diffs_skip_missing_sections(tmp_path):
+    """Removal diffs don't materialize headers:/params: in bare blocks."""
+    from vegito.apply import patch_request_file
+    f = tmp_path / "Req.yml"
+    f.write_text(textwrap.dedent("""\
+        info: {name: Req, type: http}
+        http:
+          method: GET
+          url: "{{baseUrl}}/x/"
+          headers:
+            - name: X-Old
+              value: "1"
+          params:
+            - name: page
+              value: ""
+              type: query
+        examples:
+          - request:
+              url: "{{baseUrl}}/x/"
+            response: {status: 200}
+        """))
+    patch_request_file(f, [
+        {"key": "header.X-Old", "change": "removed", "data": None},
+        {"key": "param.query.page", "change": "removed", "data": None},
+    ])
+    doc = _yaml.load(f.read_text())
+    assert "headers" not in doc["examples"][0]["request"]
+    assert "params" not in doc["examples"][0]["request"]
+    assert not doc["http"]["headers"] and not doc["http"]["params"]
+
+
 def test_plan_roundtrips_conventions(coll, tmp_path):
     """Plan files carry the conventions map so apply works standalone."""
     root, _, v2 = coll

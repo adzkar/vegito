@@ -152,9 +152,12 @@ def _patch_req_block(block: dict, key: str, d: dict):
             entry["disabled"] = True
             _params(block).append(entry)
         else:
-            block["params"] = [p for p in _params(block)
-                               if not (p.get("type") == "query" and
-                                       str(p.get("name", "")).lower() == name.lower())]
+            cur = block.get("params") or []
+            new = [p for p in cur
+                   if not (p.get("type") == "query"
+                           and str(p.get("name", "")).lower() == name.lower())]
+            if len(new) != len(cur):
+                block["params"] = new
         return
     if key == "auth":
         if d["change"] == "convention" and d["data"]:
@@ -162,16 +165,16 @@ def _patch_req_block(block: dict, key: str, d: dict):
         return
     if key.startswith("header."):
         name = key[len("header."):]
-        headers = block.setdefault("headers", [])
         if d["change"] == "added":
             info = d["data"] or {}
             entry = {"name": info.get("name", name),
                      "value": info.get("convention_value", "")}
             if info.get("description"):
                 entry["description"] = info["description"]
-            headers.append(entry)
+            block.setdefault("headers", []).append(entry)
         elif d["change"] == "convention":
             info = d["data"] or {}
+            headers = block.setdefault("headers", [])
             target = next((h for h in headers
                            if str(h.get("name", "")).lower() == name.lower()),
                           None)
@@ -181,8 +184,11 @@ def _patch_req_block(block: dict, key: str, d: dict):
             else:
                 target["value"] = info.get("value", "")
         else:
-            block["headers"] = [h for h in headers
-                                if str(h.get("name", "")).lower() != name.lower()]
+            cur = block.get("headers") or []
+            new = [h for h in cur
+                   if str(h.get("name", "")).lower() != name.lower()]
+            if len(new) != len(cur):
+                block["headers"] = new
         return
 
 
