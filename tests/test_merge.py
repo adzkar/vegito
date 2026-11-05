@@ -1356,3 +1356,13 @@ def test_retarget_resyncs_added_header_convention():
     retarget_convention_diffs(container)
     assert "convention_value" not in d["data"]
     assert d["detail"] == "header 'X-K' added"
+
+
+def test_var_ref_normalizes_and_validates():
+    """Proposal answers wrap to {{var}}; malformed input is rejected."""
+    from vegito.wizard import _var_ref
+    assert _var_ref("tok") == "{{tok}}"
+    assert _var_ref("{{tok}}") == "{{tok}}"
+    assert _var_ref(" {{tok}} ") == "{{tok}}"
+    for bad in ("{{tok", "x}}", "a b", "{{}}", "1st", ""):
+        assert _var_ref(bad) is None

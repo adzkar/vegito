@@ -1,6 +1,7 @@
 """Interactive guided flow — the default `vegito` experience."""
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import questionary
@@ -182,9 +183,26 @@ def _summary_line(changeset: dict) -> str:
                if c["skipped_count"] else ""))
 
 
-def _var_ref(answer: str) -> str:
-    """Normalize a proposal answer to a {{var}} reference."""
-    return answer if answer.startswith("{{") else f"{{{{{answer}}}}}"
+_VAR_NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+
+
+def _var_ref(answer: str) -> str | None:
+    """Normalize a proposal answer to a ``{{var}}`` reference, else ``None``.
+
+    Accepts a bare name or an already-braced ``{{name}}``; stray braces or
+    non-identifier input is malformed — the prompt re-asks instead of
+    writing a dead reference into files.
+    """
+    name = answer.strip()
+    if name.startswith("{{") and name.endswith("}}"):
+        name = name[2:-2].strip()
+    return "{{" + name + "}}" if _VAR_NAME_RE.fullmatch(name) else None
+
+
+def _valid_var(answer: str) -> bool | str:
+    """questionary validator: blank (decline) or a parseable var ref."""
+    return (not answer.strip() or _var_ref(answer) is not None
+            or "enter a var name or {{var}} reference")
 
 
 def _name_proposals(conv: dict) -> bool:
@@ -204,7 +222,8 @@ def _name_proposals(conv: dict) -> bool:
         if not c.get("proposed"):
             continue
         answer = questionary.text(f"  {c['name']}:",
-                                  default=c["value"]).ask()
+                                  default=c["value"],
+                                  validate=_valid_var).ask()
         if answer is None:
             return False
         answer = answer.strip()
@@ -215,7 +234,8 @@ def _name_proposals(conv: dict) -> bool:
     if auth.get("proposed"):
         answer = questionary.text(
             "  bearer token:",
-            default=auth["config"].get("token", "{{token}}")).ask()
+            default=auth["config"].get("token", "{{token}}"),
+            validate=_valid_var).ask()
         if answer is None:
             return False
         answer = answer.strip()
