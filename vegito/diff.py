@@ -37,6 +37,26 @@ def _response_diffs(op: dict, prev_responses: dict | None) -> list[dict]:
     return diffs
 
 
+def _conv_kind(c: dict) -> str:
+    """Convention label for detail text: proposals vs observed votes."""
+    return "proposed convention" if c.get("proposed") \
+        else "collection convention"
+
+
+def _header_conv_detail(c: dict) -> str:
+    """Detail text for a header convention diff — shared by
+    ``_convention_diffs`` and ``retarget_convention_diffs`` so the phrasing
+    can't drift between what diff prints and what apply reports."""
+    return (f"header '{c['name']}' differs from {_conv_kind(c)} "
+            f"'{c['value']}'")
+
+
+def _auth_conv_detail(auth: dict) -> str:
+    """Detail text for an auth convention diff — see _header_conv_detail."""
+    return (f"auth differs from {_conv_kind(auth)} "
+            f"({auth['config'].get('type')})")
+
+
 def _convention_diffs(op: dict, req: dict,
                       conventions: dict | None) -> list[dict]:
     """Diffs where a matched request deviates from collection conventions.
@@ -56,23 +76,16 @@ def _convention_diffs(op: dict, req: dict,
             if isinstance(entry, dict) else ""
         if not value or value == c["value"]:
             continue
-        kind = ("proposed convention" if c.get("proposed")
-                else "collection convention")
         diffs.append(_fdiff(
-            f"header.{c['name']}", "convention",
-            f"header '{c['name']}' differs from {kind} "
-            f"'{c['value']}'", {"name": c["name"], "value": c["value"]}))
+            f"header.{c['name']}", "convention", _header_conv_detail(c),
+            {"name": c["name"], "value": c["value"]}))
     auth = conv.get("auth")
     req_auth = req.get("auth")
     if auth and isinstance(req_auth, dict) \
             and req_auth.get("type") not in (None, "inherit") \
             and req_auth != auth["config"]:
-        kind = ("proposed convention" if auth.get("proposed")
-                else "collection convention")
-        diffs.append(_fdiff(
-            "auth", "convention",
-            f"auth differs from {kind} "
-            f"({auth['config'].get('type')})", deepcopy(auth["config"])))
+        diffs.append(_fdiff("auth", "convention", _auth_conv_detail(auth),
+                            deepcopy(auth["config"])))
     return diffs
 
 
@@ -96,19 +109,13 @@ def retarget_convention_diffs(container: dict) -> None:
                 if c is None:
                     continue
                 d["data"] = {"name": c["name"], "value": c["value"]}
-                kind = ("proposed convention" if c.get("proposed")
-                        else "collection convention")
-                d["detail"] = (f"header '{c['name']}' differs from {kind} "
-                               f"'{c['value']}'")
+                d["detail"] = _header_conv_detail(c)
                 diffs.append(d)
             elif d["key"] == "auth":
                 if auth is None:
                     continue
                 d["data"] = deepcopy(auth["config"])
-                kind = ("proposed convention" if auth.get("proposed")
-                        else "collection convention")
-                d["detail"] = (f"auth differs from {kind} "
-                               f"({auth['config'].get('type')})")
+                d["detail"] = _auth_conv_detail(auth)
                 diffs.append(d)
             else:
                 diffs.append(d)
