@@ -939,3 +939,18 @@ def test_root_create_resolves_symlinked_root(tmp_path):
           "auth_required": False, "responses": {}, "tags": [],
           "description": ""}
     assert create_request(link, "", op, None).exists()
+
+
+def test_print_changeset_escapes_markup(capsys):
+    """Values containing [ ] print literally, not as rich markup."""
+    from vegito.cli import _print_changeset
+    cs = {"added": [], "removed": [], "moved": [], "skipped_count": 0,
+          "conventions": {"headers": {}, "auth": None},
+          "changed": [{"operation": {"method": "get", "path": "/x/[b]/"},
+                       "request": {"rel": "R[b].yml"},
+                       "diffs": [{"key": "docs", "change": "note",
+                                  "detail": "has [dim] inside",
+                                  "action": "note", "data": None}]}]}
+    _print_changeset(cs)
+    out = capsys.readouterr().out
+    assert "[b]" in out and "[dim] inside" in out

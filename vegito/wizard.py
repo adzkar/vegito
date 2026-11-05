@@ -6,6 +6,7 @@ from pathlib import Path
 import questionary
 from questionary import Choice
 from rich.console import Console
+from rich.markup import escape
 from rich.panel import Panel
 
 from . import manifest as mf
@@ -141,11 +142,12 @@ def _review(changeset: dict, dirs: list[str]) -> bool:
             req, op = item["request"], item["operation"]
             actionable = [d for d in item["diffs"] if d["change"] != "note"]
             notes = [d for d in item["diffs"] if d["change"] == "note"]
-            console.print(f"\n  [bold]{req['name']}[/]  ({req['rel']})"
-                          f"  {op['method'].upper()} {op['path']}")
+            console.print(f"\n  [bold]{escape(req['name'])}[/]  "
+                          f"({escape(req['rel'])})"
+                          f"  {op['method'].upper()} {escape(op['path'])}")
             for d in notes:
                 if not d.get("skipped"):
-                    console.print(f"    [dim]note: {d['detail']}[/]")
+                    console.print(f"    [dim]note: {escape(d['detail'])}[/]")
             if actionable:
                 choices = [Choice(d["detail"], value=n,
                                   checked=d["action"] == "apply"
@@ -202,7 +204,7 @@ def run(schema: str | None = None, collection: str | None = None):
 
     conv_line = format_conventions(changeset.get("conventions"))
     if conv_line:
-        console.print(f"[dim]conventions: {conv_line}[/]")
+        console.print(f"[dim]conventions: {escape(conv_line)}[/]")
 
     if not any([changeset["added"], changeset["removed"],
                 changeset["changed"], changeset["moved"]]):
@@ -239,4 +241,4 @@ def run(schema: str | None = None, collection: str | None = None):
     if report["errors"]:
         console.print(f"[bold red]{len(report['errors'])} errors[/] — "
                       "see report")
-    console.print(f"Report: {_display_path(report_path)}")
+    console.print(f"Report: {escape(_display_path(report_path))}")

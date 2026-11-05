@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 from rich.console import Console
+from rich.markup import escape
 
 from . import __version__
 
@@ -38,27 +39,30 @@ def _print_changeset(cs: dict):
     from .collection import format_conventions
     conv_line = format_conventions(cs.get("conventions"))
     if conv_line:
-        console.print(f"[dim]conventions: {conv_line}[/]")
+        console.print(f"[dim]conventions: {escape(conv_line)}[/]")
     for item in cs["added"]:
         op = item["operation"]
         console.print(f"[green]+ new[/]      {op['method'].upper():6} "
-                      f"{op['path']}  → {op['operation_id']}")
+                      f"{escape(op['path'])}  → {escape(op['operation_id'])}")
     for item in cs["removed"]:
         r = item["request"]
         console.print(f"[red]- removed[/]  {r['method'].upper():6} "
-                      f"{r['url_path'].replace('{{baseUrl}}', '')}  ({r['rel']})")
+                      f"{escape(r['url_path'].replace('{{baseUrl}}', ''))}"
+                      f"  ({escape(r['rel'])})")
     for item in cs["moved"]:
         op = item["operation"]
         console.print(f"[yellow]~ moved[/]    {op['method'].upper():6} "
-                      f"{item['previous_key'].split(' ', 1)[-1]} → {op['path']}")
+                      f"{escape(item['previous_key'].split(' ', 1)[-1])}"
+                      f" → {escape(op['path'])}")
     for item in cs["changed"]:
         op, r = item["operation"], item["request"]
         console.print(f"[cyan]Δ changed[/]  {op['method'].upper():6} "
-                      f"{op['path']}  ({r['rel']})")
+                      f"{escape(op['path'])}  ({escape(r['rel'])})")
         for d in item["diffs"]:
             if not d.get("skipped"):
                 tag = "note" if d["change"] == "note" else d["change"]
-                console.print(f"            [dim]{tag:8}[/] {d['detail']}")
+                console.print(f"            [dim]{tag:8}[/] "
+                              f"{escape(d['detail'])}")
     if cs["skipped_count"]:
         console.print(f"[dim]({cs['skipped_count']} previously skipped "
                       "diffs hidden)[/]")
@@ -84,8 +88,8 @@ def _cmd_plan(args):
                                 scan_collection(root), load(root))
     out = Path(args.out or "merge-plan.yml")
     save_plan(changeset_to_plan(changeset, str(schema), root), out)
-    console.print(f"Plan written to {out} — edit it, then run "
-                  f"`vegito apply {out}`")
+    console.print(f"Plan written to {escape(str(out))} — edit it, then run "
+                  f"`vegito apply {escape(str(out))}`")
     _print_changeset(changeset)
     return 0
 
@@ -112,7 +116,7 @@ def _cmd_apply(args):
                   f"{len(report['moved'])} moved"
                   + (f", [red]{len(report['errors'])} errors[/]"
                      if report["errors"] else ""))
-    console.print(f"Report: {path}")
+    console.print(f"Report: {escape(str(path))}")
     return 0
 
 
@@ -127,10 +131,12 @@ def _cmd_schema_diff(args):
            for o in parse_operations(load_schema(args.new))}
     for key, op in new.items():
         if key not in old:
-            console.print(f"[green]+ {op['method'].upper():6} {op['path']}[/]")
+            console.print(
+                f"[green]+ {op['method'].upper():6} {escape(op['path'])}[/]")
     for key, op in old.items():
         if key not in new:
-            console.print(f"[red]- {op['method'].upper():6} {op['path']}[/]")
+            console.print(
+                f"[red]- {op['method'].upper():6} {escape(op['path'])}[/]")
     for key, op in new.items():
         if key in old:
             prev = old[key]
@@ -146,9 +152,11 @@ def _cmd_schema_diff(args):
                                   {"body": prev["body"],
                                    "responses": prev["responses"]})
             if diffs:
-                console.print(f"[cyan]Δ {op['method'].upper():6} {op['path']}[/]")
+                console.print(
+                    f"[cyan]Δ {op['method'].upper():6} {escape(op['path'])}[/]")
                 for d in diffs:
-                    console.print(f"    [dim]{d['change']:8}[/] {d['detail']}")
+                    console.print(f"    [dim]{d['change']:8}[/] "
+                                  f"{escape(d['detail'])}")
     return 0
 
 
