@@ -1475,6 +1475,57 @@ def test_retarget_resurfaces_renamed_convention_skip():
     assert container["skipped_count"] == 1
 
 
+def test_retarget_decrements_skipped_count():
+    """skipped_count covers hidden items too — retarget subtracts what it
+    dropped/resurfaced rather than recomputing over 'changed'."""
+    from vegito.diff import retarget_convention_diffs
+    container = {
+        # 1 skipped diff below + 2 on fully-hidden items outside 'changed'
+        "skipped_count": 3,
+        "conventions": {"headers": {}, "auth": None},
+        "changed": [{"diffs": [
+            {"key": "header.X-K", "change": "convention", "action": "skip",
+             "skipped": True, "detail": "d",
+             "data": {"name": "X-K", "value": "{{a}}"}},
+            {"key": "docs", "change": "modified", "action": "apply",
+             "detail": "d", "data": "x"}]}],
+    }
+    retarget_convention_diffs(container)
+    # a recount over 'changed' would report 0 — only the drop is subtracted
+    assert container["skipped_count"] == 2
+
+
+def test_retarget_strips_diverged_suffix():
+    """A hand-edit diverging convention_value from the detail suffix must
+    not yield a doubled ' (convention: …)' after retarget."""
+    from vegito.diff import retarget_convention_diffs
+    container = {
+        "conventions": {"headers": {"x-k": {"name": "X-K",
+                                           "value": "{{new}}",
+                                           "count": 2}},
+                        "auth": None},
+        "changed": [{"diffs": [
+            {"key": "header.X-K", "change": "added", "action": "apply",
+             "detail": "header 'X-K' added (convention: {{edited}})",
+             "data": {"name": "X-K", "convention_value": "{{orig}}"}}]}],
+    }
+    retarget_convention_diffs(container)
+    d = container["changed"][0]["diffs"][0]
+    assert d["data"]["convention_value"] == "{{new}}"
+    assert d["detail"] == "header 'X-K' added (convention: {{new}})"
+
+
+def test_retarget_tolerates_missing_diffs_key():
+    """A hand-edited 'changed' entry without 'diffs' is pruned, not a
+    bare KeyError."""
+    from vegito.diff import retarget_convention_diffs
+    container = {"conventions": {"headers": {}, "auth": None},
+                   "changed": [{"file": "X.yml", "method": "get",
+                                "path": "/x/"}]}
+    retarget_convention_diffs(container)
+    assert container["changed"] == []
+
+
 def test_auth_convention_diff_snapshots_config(tmp_path):
     """The auth diff's data is a snapshot, not an alias — _name_proposals
     mutates conventions["auth"]["config"] in place, and retarget's

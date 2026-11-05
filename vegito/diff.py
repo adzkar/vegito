@@ -1,6 +1,7 @@
 """Compute a changeset between schema operations and collection requests."""
 from __future__ import annotations
 
+import re
 from copy import deepcopy
 from pathlib import Path
 
@@ -103,22 +104,25 @@ def retarget_convention_diffs(container: dict) -> None:
     re-synced (or dropped) the same way, since apply writes it verbatim.
     A rewritten convention value also drops the diff's ``skipped`` flag:
     the skip signature fingerprinted the old value, so a renamed
-    convention must resurface rather than stay hidden.
+    convention must resurface rather than stay hidden. ``skipped_count``
+    (when present) is decremented by the diffs dropped or resurfaced —
+    not recomputed over ``changed``, since signature-skipped diffs on
+    fully-hidden matched items never entered it and still count.
     """
     conv = container.get("conventions") or {}
     headers = conv.get("headers") or {}
     auth = conv.get("auth")
+    skipped_lost = 0
     for item in container.get("changed") or []:
         diffs = []
-        for d in item["diffs"]:
+        for d in item.get("diffs") or []:
             if d["change"] == "added" and d["key"].startswith("header."):
                 data = d.get("data") or {}
                 detail = d.get("detail") or ""
-                old = data.pop("convention_value", None)
-                if old is not None:
-                    suffix = f" (convention: {old})"
-                    if detail.endswith(suffix):
-                        detail = detail[: -len(suffix)]
+                data.pop("convention_value", None)
+                # Strip any trailing convention suffix — a hand-edit can
+                # leave it diverged from convention_value.
+                detail = re.sub(r" \(convention: .*\)$", "", detail)
                 c = headers.get(d["key"][len("header."):].lower())
                 if c is not None:
                     data["convention_value"] = c["value"]
@@ -132,18 +136,24 @@ def retarget_convention_diffs(container: dict) -> None:
             if d["key"].startswith("header."):
                 c = headers.get(d["key"][len("header."):].lower())
                 if c is None:
+                    if d.get("skipped"):
+                        skipped_lost += 1
                     continue
                 data = {"name": c["name"], "value": c["value"]}
                 if d.get("data") != data:
-                    d.pop("skipped", None)
+                    if d.pop("skipped", None):
+                        skipped_lost += 1
                 d["data"] = data
                 d["detail"] = _header_conv_detail(c)
                 diffs.append(d)
             elif d["key"] == "auth":
                 if auth is None:
+                    if d.get("skipped"):
+                        skipped_lost += 1
                     continue
                 if d.get("data") != auth["config"]:
-                    d.pop("skipped", None)
+                    if d.pop("skipped", None):
+                        skipped_lost += 1
                 d["data"] = deepcopy(auth["config"])
                 d["detail"] = _auth_conv_detail(auth)
                 diffs.append(d)
@@ -153,9 +163,8 @@ def retarget_convention_diffs(container: dict) -> None:
     container["changed"] = [i for i in container.get("changed") or []
                             if i["diffs"]]
     if "skipped_count" in container:
-        container["skipped_count"] = sum(
-            1 for i in container["changed"] for d in i["diffs"]
-            if d.get("skipped"))
+        container["skipped_count"] = max(
+            0, container["skipped_count"] - skipped_lost)
 
 
 def diff_endpoint(op: dict, req: dict, prev: dict | None = None,
