@@ -25,7 +25,14 @@ def execute_plan(root: Path, plan: dict, ops: list[dict], reqs: list[dict],
     endpoints = manifest.setdefault("endpoints", {})
     manual = manifest.setdefault("manual_files", [])
 
-    conventions = plan.get("conventions") or collection_conventions(reqs)
+    conventions = plan.get("conventions")
+    if conventions is None:
+        # Legacy plans (pre-conventions): vote like build_changeset — files
+        # the plan is about to archive/delete don't get a say.
+        doomed = {i["file"] for i in plan.get("removed", [])
+                  if i.get("action", "archive") != "keep"}
+        conventions = collection_conventions(
+            [r for r in reqs if r["rel"] not in doomed])
 
     # --- added endpoints ---
     for item in plan.get("added", []):

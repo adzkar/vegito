@@ -547,6 +547,33 @@ def test_conventions_mixed_type_auth_keys():
     assert fingerprint({5: "x", "a": 1}) == fingerprint({"5": "x", "a": 1})
 
 
+def test_execute_plan_fallback_excludes_removed(coll):
+    """A conventions-less legacy plan doesn't let archived files vote."""
+    root, _, v2 = coll
+    legacy = root / "legacy"
+    legacy.mkdir()
+    for i in range(3):
+        (legacy / f"old{i}.yml").write_text(textwrap.dedent(f"""\
+            info: {{name: Old{i}, type: http}}
+            http:
+              method: GET
+              url: "{{{{baseUrl}}}}/legacy/old{i}/"
+              auth: {{type: basic, username: u, password: p}}
+            """))
+    ops, reqs, cs = _changeset(v2, root)
+    plan = changeset_to_plan(cs, str(v2), root)
+    plan.pop("conventions")  # simulate a plan file from before conventions
+    for item in plan["added"]:
+        item["folder"] = item["folder"] or "demo/Widgets"
+    manifest = load_manifest(root)
+    report = execute_plan(root, plan, ops, reqs, manifest)
+    assert not report["errors"], report["errors"]
+    doc = _yaml.load(
+        (root / "demo/Widgets/demo_widgets_create.yml").read_text())
+    # 3 doomed basic files would outvote the 2 live bearer ones if counted
+    assert doc["http"]["auth"]["type"] == "bearer"
+
+
 def test_conventions_modal_min2():
     """Modal header value/auth config wins only with >=2 uses."""
     from vegito.collection import collection_conventions
