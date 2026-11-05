@@ -929,6 +929,37 @@ def test_execute_plan_tolerates_malformed_plan_lists(tmp_path):
     assert any("r.yml" in e for e in errs)
 
 
+def test_execute_plan_skipped_added_does_not_gate_proposals(tmp_path):
+    """A skipped added endpoint's headers must not gate regenerated
+    proposals — nothing will consume them."""
+    root = tmp_path / "coll"
+    root.mkdir()
+    matched = _op_with_header()
+    reqs = _blank_reqs()
+    for r in reqs:
+        r["headers"].update(
+            {"x-skip-hdr": {"name": "X-Skip-Hdr", "value": ""},
+             "x-keep-hdr": {"name": "X-Keep-Hdr", "value": ""}})
+    plan = {"added": [
+                {"operation": dict(_op_with_header(), operation_id="y",
+                                   path="/y/", norm="/y",
+                                   headers={"x-skip-hdr":
+                                            {"name": "X-Skip-Hdr"}}),
+                 "action": "skip"},
+                {"operation": dict(_op_with_header(), operation_id="z",
+                                   path="/z/", norm="/z",
+                                   headers={"x-keep-hdr":
+                                            {"name": "X-Keep-Hdr"}}),
+                 "action": "add", "folder": "f", "name": "z"}],
+            "removed": [], "moved": [], "changed": []}
+    report = execute_plan(root, plan, [matched] + [
+        a["operation"] for a in plan["added"]], reqs, load_manifest(root))
+    assert not report["errors"], report["errors"]
+    conv = plan["conventions"]["headers"]
+    assert "x-skip-hdr" not in conv       # skipped op doesn't gate
+    assert conv["x-keep-hdr"]["proposed"]  # the added one still does
+
+
 def test_execute_plan_regenerate_honors_declined_proposals(tmp_path):
     """The apply-side regeneration path honors declined_proposals — a
     legacy plan lacking the block must not write declined vars."""

@@ -101,6 +101,7 @@ def execute_plan(root: Path, plan: dict, ops: list[dict], reqs: list[dict],
             declared |= {
                 lname for a in added_items
                 if isinstance(a, dict)
+                and a.get("action") == "add"
                 and isinstance(a.get("operation"), dict)
                 and isinstance(a["operation"].get("headers"), dict)
                 for lname in a["operation"]["headers"]}
