@@ -47,7 +47,8 @@ def _print_changeset(cs: dict):
                       f"  → {escape(str(op['operation_id']))}")
     for item in cs["removed"]:
         r = item["request"]
-        console.print(f"[red]- removed[/]  {r['method'].upper():6} "
+        console.print(f"[red]- removed[/]"
+                      f"  {escape(str(r['method'].upper())):6} "
                       f"{escape(str(r['url_path']).replace('{{baseUrl}}', ''))}"
                       f"  ({escape(str(r['rel']))})")
     for item in cs["moved"]:

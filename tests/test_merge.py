@@ -1035,6 +1035,19 @@ def test_print_changeset_escapes_markup(capsys):
     assert "[b]" in out and "[dim] inside" in out
 
 
+def test_print_changeset_escapes_method_markup(capsys):
+    """A request method containing [ ] prints literally, not as markup."""
+    from vegito.cli import _print_changeset
+    cs = {"added": [], "moved": [], "skipped_count": 0,
+          "conventions": {"headers": {}, "auth": None}, "changed": [],
+          "removed": [{"request": {"method": "g[red]et",
+                                   "url_path": "/x/", "rel": "X.yml"},
+                       "action": "archive", "method": "g[red]et",
+                       "path": "/x/"}]}
+    _print_changeset(cs)
+    assert "[RED]" in capsys.readouterr().out
+
+
 def test_print_changeset_handles_nonstring_scalars(capsys):
     """Non-string YAML scalars (e.g. int operationId) print without a crash."""
     from vegito.cli import _print_changeset
