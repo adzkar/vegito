@@ -145,7 +145,8 @@ def parse_operations(doc: dict) -> list[dict]:
                 "method": method.lower(),
                 "path": path,
                 "norm": norm_path(path),
-                "operation_id": op.get("operationId") or f"{method}_{norm_path(path)}",
+                "operation_id": str(op.get("operationId")
+                                    or f"{method}_{norm_path(path)}"),
                 "description": (op.get("description") or "").strip(),
                 "tags": list(op.get("tags") or []),
                 "path_params": path_params,

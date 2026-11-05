@@ -1020,6 +1020,25 @@ def test_root_create_resolves_symlinked_root(tmp_path):
     assert create_request(link, "", op, None).exists()
 
 
+def test_parse_operations_coerces_nonstring_operation_id(tmp_path):
+    """operationId: 123 parses to '123' — safe_filename/scalar stay safe."""
+    from vegito.schema import load_schema, parse_operations
+    from vegito.skeleton import safe_filename
+    s = tmp_path / "s.yaml"
+    s.write_text(textwrap.dedent("""\
+        openapi: 3.0.3
+        info: {title: T, version: "1"}
+        paths:
+          /x/:
+            get:
+              operationId: 123
+              responses: {'200': {description: ''}}
+        """))
+    op = parse_operations(load_schema(s))[0]
+    assert op["operation_id"] == "123"
+    assert safe_filename(op["operation_id"]) == "123"
+
+
 def test_print_changeset_escapes_markup(capsys):
     """Values containing [ ] print literally, not as rich markup."""
     from vegito.cli import _print_changeset
