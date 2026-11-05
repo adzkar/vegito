@@ -67,6 +67,8 @@ Plan action vocabulary:
   rewrites the field to the convention). The serialized block is a
   changeset-time snapshot for review — `apply` re-votes over the plan's
   final survivor set, so a `removed` entry flipped to `keep` rejoins.
+  New skeletons inherit the re-vote; an applied `convention` diff writes
+  the value reviewed in the plan, not the re-vote.
 
 ## Domain primer (opencollection format)
 
