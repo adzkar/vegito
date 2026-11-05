@@ -132,7 +132,8 @@ Conventions observed in the target collection (replicate in `skeleton.py`):
   skip on the same field (bare-key entries from older runs still read).
 - **Untouchable user data**: `info.name`, `seq`, `runtime.scripts`,
   `http.auth`, `settings`, environments, filled-in values — edits only target
-  the specific field a diff names.
+  the specific field a diff names. (`http.auth`'s one opt-in exception: an
+  explicitly applied `convention` diff rewrites it to the convention.)
 - **Manual files**: files matching nothing in the schema would look "removed";
   `keep` records them in `manual_files` so they stop being flagged.
 - **Conventions** (`collection_conventions`): modal header value / auth
@@ -240,7 +241,8 @@ fabricate files per the primer above:
   shows only the intended lines — no whitespace/quote/ordering churn in
   untouched files.
 - **Invariants hold**: no edits to `info.name`, `seq`, `runtime.scripts`,
-  `http.auth`, `settings`, environments, or user-filled values outside the
+  `http.auth` (except via an explicitly applied `convention` diff),
+  `settings`, environments, or user-filled values outside the
   diffed field (see "Load-bearing details").
 - **Idempotent**: running `diff` again on the merged collection reports
   "up to date" (modulo explicitly skipped diffs).

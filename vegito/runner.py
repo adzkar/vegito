@@ -185,6 +185,10 @@ def execute_plan(root: Path, plan: dict, ops: list[dict], reqs: list[dict],
             report["errors"].append(f"move {_plan_label(item)}: {exc}")
 
     # --- changed endpoints ---
+    # changed_items was bound before retarget rebuilt plan['changed'] —
+    # items retarget emptied of diffs still flow through here as no-ops,
+    # refreshing their endpoint baseline and preserving prior skip sigs
+    # (intentional; iterating plan['changed'] post-retarget would lose that).
     for item in changed_items:
         try:
             op = op_by_key.get((item["method"], _norm_of(item["path"]))) or \
