@@ -574,6 +574,37 @@ def test_execute_plan_fallback_excludes_removed(coll):
     assert doc["http"]["auth"]["type"] == "bearer"
 
 
+def test_execute_plan_fallback_keepers_still_vote(coll):
+    """Removed entries kept by the plan still vote in the fallback."""
+    root, _, v2 = coll
+    legacy = root / "legacy"
+    legacy.mkdir()
+    for i in range(3):
+        (legacy / f"old{i}.yml").write_text(textwrap.dedent(f"""\
+            info: {{name: Old{i}, type: http}}
+            http:
+              method: GET
+              url: "{{{{baseUrl}}}}/legacy/old{i}/"
+              auth: {{type: basic, username: u, password: p}}
+            """))
+    ops, reqs, cs = _changeset(v2, root)
+    plan = changeset_to_plan(cs, str(v2), root)
+    plan.pop("conventions")  # legacy plan
+    for item in plan["removed"]:
+        if item["file"].startswith("legacy/"):
+            item["action"] = "keep"  # survives the merge → keeps its vote
+    for item in plan["added"]:
+        item["folder"] = item["folder"] or "demo/Widgets"
+    manifest = load_manifest(root)
+    report = execute_plan(root, plan, ops, reqs, manifest)
+    assert not report["errors"], report["errors"]
+    doc = _yaml.load(
+        (root / "demo/Widgets/demo_widgets_create.yml").read_text())
+    # 3 kept basic voters outvote the 2 live bearer files
+    assert doc["http"]["auth"]["type"] == "basic"
+    assert (root / "legacy/old0.yml").exists()
+
+
 def test_conventions_modal_min2():
     """Modal header value/auth config wins only with >=2 uses."""
     from vegito.collection import collection_conventions
