@@ -64,8 +64,9 @@ def _convention_diffs(op: dict, req: dict,
 
     Only fields the schema still declares are checked (a dropped header is
     governed by its 'removed' diff), and only requests that carry the field
-    — a missing, blank, or ``inherit`` value can't be told apart from
-    unfilled, so it is left alone.
+    — a missing or ``inherit`` value can't be told apart from unfilled, so
+    it is left alone. Blanks are left alone for observed conventions but
+    flagged for proposals (filling gaps is their purpose).
     """
     conv = conventions or {}
     diffs = []
@@ -75,7 +76,10 @@ def _convention_diffs(op: dict, req: dict,
         entry = req["headers"].get(lname)
         value = str(entry.get("value") or "") \
             if isinstance(entry, dict) else ""
-        if not value or value == c["value"]:
+        # Blank stays unflagged for observed conventions (can't tell
+        # deliberate empty) — but proposals exist to fill gaps, so they
+        # flag blanks too.
+        if value == c["value"] or (not value and not c.get("proposed")):
             continue
         diffs.append(_fdiff(
             f"header.{c['name']}", "convention", _header_conv_detail(c),
