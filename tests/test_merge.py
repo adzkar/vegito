@@ -905,6 +905,30 @@ def test_execute_plan_tolerates_malformed_conventions_block(tmp_path):
         assert (root / f"f/y{i}.yml").exists()
 
 
+def test_execute_plan_tolerates_malformed_plan_lists(tmp_path):
+    """Scalar/non-list plan collections and a non-iterable diffs value
+    degrade instead of crashing the pre-loop comprehensions."""
+    root = tmp_path / "coll"
+    root.mkdir()
+    matched = _op_with_header()
+    added = dict(_op_with_header(), operation_id="y", path="/y/",
+                 norm="/y")
+    plan = {"added": [{"operation": added, "action": "add", "folder": "f",
+                       "name": "y"}, "oops"],
+            "removed": "oops", "moved": 5,
+            "changed": [{"file": "r.yml", "method": "get", "path": "/x/",
+                         "diffs": 5}]}
+            # no conventions key — the regenerate path iterates added
+    report = execute_plan(root, plan, [matched, added], _blank_reqs(),
+                          load_manifest(root))
+    assert (root / "f/y.yml").exists()  # the valid added entry applied
+    errs = report["errors"]
+    assert any("removed" in e for e in errs)
+    assert any("moved" in e for e in errs)
+    assert any("oops" in e for e in errs)
+    assert any("r.yml" in e for e in errs)
+
+
 def test_execute_plan_regenerate_honors_declined_proposals(tmp_path):
     """The apply-side regeneration path honors declined_proposals — a
     legacy plan lacking the block must not write declined vars."""

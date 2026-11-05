@@ -120,15 +120,21 @@ def retarget_convention_diffs(container: dict) -> None:
     auth = conv.get("auth")
     skipped_lost = 0
     changed = []
-    for item in container.get("changed") or []:
+    items = container.get("changed")
+    for item in items if isinstance(items, list) else []:
         if not isinstance(item, dict):
             # Malformed entries pass through untouched — the caller's
             # per-item error handling reports them.
             changed.append(item)
             continue
-        had_diffs = bool(item.get("diffs"))
+        raw = item.get("diffs")
+        if raw is not None and not isinstance(raw, list):
+            # A malformed diffs container stays for the caller's error row.
+            changed.append(item)
+            continue
+        had_diffs = bool(raw)
         diffs = []
-        for d in item.get("diffs") or []:
+        for d in raw or []:
             if not isinstance(d, dict):
                 diffs.append(d)
                 continue

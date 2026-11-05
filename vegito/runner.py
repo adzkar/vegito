@@ -30,12 +30,16 @@ def execute_plan(root: Path, plan: dict, ops: list[dict], reqs: list[dict],
               "archived": [], "deleted": [], "moved": [], "errors": []}
     endpoints = manifest.setdefault("endpoints", {})
     manual = manifest.setdefault("manual_files", [])
+    added_items = _plan_items(plan, "added", report)
+    removed_items = _plan_items(plan, "removed", report)
+    moved_items = _plan_items(plan, "moved", report)
+    changed_items = _plan_items(plan, "changed", report)
 
     # Vote conventions over the plan's final survivor set — a removed
     # entry flipped to keep rejoins the vote. The plan's serialized
     # conventions block is a changeset-time snapshot: inferred values are
     # re-derived, but proposals keep their reviewed/named vars.
-    doomed = {i.get("file") for i in plan.get("removed", [])
+    doomed = {i.get("file") for i in removed_items
               if isinstance(i, dict)
               and i.get("action", "archive") in ("archive", "delete")}
     survivors = [r for r in reqs if r["rel"] not in doomed]
@@ -95,8 +99,11 @@ def execute_plan(root: Path, plan: dict, ops: list[dict], reqs: list[dict],
                 for lname in (op_by_key.get((r["method"], r["norm"]))
                               or {}).get("headers", {})}
             declared |= {
-                lname for a in plan.get("added", [])
-                for lname in (a.get("operation") or {}).get("headers", {})}
+                lname for a in added_items
+                if isinstance(a, dict)
+                and isinstance(a.get("operation"), dict)
+                and isinstance(a["operation"].get("headers"), dict)
+                for lname in a["operation"]["headers"]}
             conventions = collection_proposals(
                 survivors, env_var_names(root), declared)
             conventions = filter_declined_proposals(conventions, manifest)
@@ -108,8 +115,9 @@ def execute_plan(root: Path, plan: dict, ops: list[dict], reqs: list[dict],
     # or a post-plan modal flip gets silently re-signed and never
     # resurfaces.
     reviewed = {id(d): deepcopy(d.get("data"))
-                for item in plan.get("changed", []) if isinstance(item, dict)
-                for d in (item.get("diffs") or [])
+                for item in changed_items if isinstance(item, dict)
+                for d in (item.get("diffs")
+                          if isinstance(item.get("diffs"), list) else [])
                 if isinstance(d, dict) and d.get("action") == "skip"}
     retarget_convention_diffs(plan)
     if planned_conv is not None and planned_conv != conventions:
@@ -118,7 +126,7 @@ def execute_plan(root: Path, plan: dict, ops: list[dict], reqs: list[dict],
             f"{conv_source} applied")
 
     # --- added endpoints ---
-    for item in plan.get("added", []):
+    for item in added_items:
         try:
             op = item["operation"]
             key = f"{op['method']} {op['norm']}"
@@ -135,7 +143,7 @@ def execute_plan(root: Path, plan: dict, ops: list[dict], reqs: list[dict],
             report["errors"].append(f"create {_plan_label(item)}: {exc}")
 
     # --- removed endpoints ---
-    for item in plan.get("removed", []):
+    for item in removed_items:
         try:
             rel = item["file"]
             action = item.get("action", "archive")
@@ -154,7 +162,7 @@ def execute_plan(root: Path, plan: dict, ops: list[dict], reqs: list[dict],
             report["errors"].append(f"removed {_plan_label(item)}: {exc}")
 
     # --- moved endpoints ---
-    for item in plan.get("moved", []):
+    for item in moved_items:
         try:
             op = item["operation"]
             new_key = f"{op['method']} {op['norm']}"
@@ -174,7 +182,7 @@ def execute_plan(root: Path, plan: dict, ops: list[dict], reqs: list[dict],
             report["errors"].append(f"move {_plan_label(item)}: {exc}")
 
     # --- changed endpoints ---
-    for item in plan.get("changed", []):
+    for item in changed_items:
         try:
             op = op_by_key.get((item["method"], _norm_of(item["path"]))) or \
                 item.get("operation")
@@ -213,7 +221,7 @@ def execute_plan(root: Path, plan: dict, ops: list[dict], reqs: list[dict],
 
     # --- untouched matched endpoints: refresh snapshots so moved-detection
     # and response baselines stay current ---
-    planned = {item.get("state_key") for item in plan.get("changed", [])
+    planned = {item.get("state_key") for item in changed_items
                if isinstance(item, dict)}
     for op in ops:
         key = f"{op['method']} {op['norm']}"
@@ -226,6 +234,19 @@ def execute_plan(root: Path, plan: dict, ops: list[dict], reqs: list[dict],
             endpoints[key] = mf.endpoint_snapshot(op, req["rel"], {})
 
     return report
+
+
+def _plan_items(plan: dict, key: str, report: dict) -> list:
+    """The plan's list for ``key`` — a non-list container (scalar, dict)
+    is reported once and treated as empty. Malformed *entries* degrade
+    to per-item error rows; a malformed container has none to give."""
+    v = plan.get(key)
+    if isinstance(v, list):
+        return v
+    if v is not None:
+        report["errors"].append(
+            f"{key}: expected a list, got {type(v).__name__}")
+    return []
 
 
 def _plan_label(item) -> str:
