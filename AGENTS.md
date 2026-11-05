@@ -107,7 +107,9 @@ Conventions observed in the target collection (replicate in `skeleton.py`):
   request URL and the example's URL can have *different* segment layouts.
 - **Manifest** (`.merger/state.json`): per-endpoint schema snapshot (`body`,
   `responses` field maps + `sig`). Enables response/requiredness diffs next
-  run (files don't store schema metadata) and `skipped` diff signatures.
+  run (files don't store schema metadata) and `skipped` diff signatures —
+  keyed `change␟field` so a convention skip can't clobber a schema-diff
+  skip on the same field (bare-key entries from older runs still read).
 - **Untouchable user data**: `info.name`, `seq`, `runtime.scripts`,
   `http.auth`, `settings`, environments, filled-in values — edits only target
   the specific field a diff names.

@@ -7,7 +7,7 @@ from pathlib import Path
 from . import manifest as mf
 from .apply import archive_file, create_request, delete_file, patch_request_file
 from .collection import collection_conventions
-from .diff import _sig_for_diff
+from .diff import _sig_for_diff, _skip_key
 
 
 def _ep(method: str, path: str) -> str:
@@ -114,8 +114,9 @@ def execute_plan(root: Path, plan: dict, ops: list[dict], reqs: list[dict],
                 skipped_sigs = dict(prev.get("skipped") or {})
                 for d in item["diffs"]:
                     if d.get("action") == "skip":
-                        skipped_sigs[d["key"]] = _sig_for_diff(d, op)
+                        skipped_sigs[_skip_key(d)] = _sig_for_diff(d, op)
                     elif d.get("action") == "apply":
+                        skipped_sigs.pop(_skip_key(d), None)
                         skipped_sigs.pop(d["key"], None)
                 endpoints[state_key] = mf.endpoint_snapshot(op, rel, skipped_sigs)
         except Exception as exc:

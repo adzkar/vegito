@@ -180,6 +180,12 @@ def diff_endpoint(op: dict, req: dict, prev: dict | None = None,
     return diffs
 
 
+def _skip_key(d: dict) -> str:
+    """Manifest key for skip memory — (change, key), so a convention skip
+    can't clobber a schema-diff skip recorded on the same field."""
+    return f"{d['change']}\x1f{d['key']}"
+
+
 def _sig_for_diff(d: dict, op: dict) -> str:
     """Signature of the schema-side state a diff refers to (for skip memory)."""
     key, op_key = d["key"], None
@@ -257,7 +263,9 @@ def build_changeset(ops: list[dict], reqs: list[dict],
         diffs = diff_endpoint(op, req, entry_state, conventions)
         skipped = entry_state.get("skipped") or {}
         for d in diffs:
-            if skipped.get(d["key"]) == _sig_for_diff(d, op):
+            # fall back to the bare key for manifests written by older runs
+            sig = skipped.get(_skip_key(d)) or skipped.get(d["key"])
+            if sig == _sig_for_diff(d, op):
                 d["skipped"] = True
                 skipped_count += 1
         if any(not d.get("skipped") for d in diffs):

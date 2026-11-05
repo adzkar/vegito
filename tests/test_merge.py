@@ -716,6 +716,37 @@ def test_review_checkbox_maps_by_diff_index(monkeypatch):
     assert (a["action"], b["action"], c["action"]) == ("note", "apply", "skip")
 
 
+def test_skip_memory_scoped_by_change_kind(coll):
+    """Convention skips store under (change, key) — no cross-kind clobber."""
+    root, _, v2 = coll
+    _deviating_collection(root)
+    ops, reqs, cs = _changeset(v2, root)
+    _apply_all(v2, root, ops, reqs, cs)
+    state = load_manifest(root)["endpoints"]["get /demo/widgets"]
+    assert "convention\x1fauth" in state["skipped"]
+
+
+def test_legacy_skip_key_still_honored(coll):
+    """A skip recorded under the pre-(change,key) bare key still hides."""
+    root, _, v2 = coll
+    ops, reqs, cs = _changeset(v2, root)
+    for item in cs["changed"]:
+        for d in item["diffs"]:
+            if d["key"] == "param.query.category":
+                d["action"] = "skip"
+    _apply_all(v2, root, ops, reqs, cs)
+    # rewrite the manifest entry the way pre-composite runs stored it
+    m = load_manifest(root)
+    ep = m["endpoints"]["get /demo/widgets"]
+    ep["skipped"] = {"param.query.category":
+                     list(ep["skipped"].values())[0]}
+    save_manifest(root, m, str(v2))
+    _, _, cs2 = _changeset(v2, root)
+    assert not [d for i in cs2["changed"] for d in i["diffs"]
+                if d["key"] == "param.query.category"
+                and not d.get("skipped")]
+
+
 def test_convention_diffs_unchecked_in_review(monkeypatch):
     """The wizard leaves convention diffs unchecked — opt-in there too."""
     from vegito import wizard
