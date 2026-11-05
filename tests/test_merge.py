@@ -985,3 +985,19 @@ def test_print_changeset_escapes_markup(capsys):
     _print_changeset(cs)
     out = capsys.readouterr().out
     assert "[b]" in out and "[dim] inside" in out
+
+
+def test_print_changeset_handles_nonstring_scalars(capsys):
+    """Non-string YAML scalars (e.g. int operationId) print without a crash."""
+    from vegito.cli import _print_changeset
+    cs = {"added": [{"operation": {"method": "get", "path": "/x/",
+                                   "operation_id": 123},
+                     "action": "add", "folder": None, "name": "x"}],
+          "removed": [{"request": {"method": "get", "url_path": "/old/",
+                                   "rel": "Old.yml"},
+                       "action": "archive", "method": "get",
+                       "path": "/old/"}],
+          "moved": [], "skipped_count": 0,
+          "conventions": {"headers": {}, "auth": None}, "changed": []}
+    _print_changeset(cs)
+    assert "123" in capsys.readouterr().out

@@ -39,30 +39,31 @@ def _print_changeset(cs: dict):
     from .collection import format_conventions
     conv_line = format_conventions(cs.get("conventions"))
     if conv_line:
-        console.print(f"[dim]conventions: {escape(conv_line)}[/]")
+        console.print(f"[dim]conventions: {escape(str(conv_line))}[/]")
     for item in cs["added"]:
         op = item["operation"]
         console.print(f"[green]+ new[/]      {op['method'].upper():6} "
-                      f"{escape(op['path'])}  → {escape(op['operation_id'])}")
+                      f"{escape(str(op['path']))}"
+                      f"  → {escape(str(op['operation_id']))}")
     for item in cs["removed"]:
         r = item["request"]
         console.print(f"[red]- removed[/]  {r['method'].upper():6} "
-                      f"{escape(r['url_path'].replace('{{baseUrl}}', ''))}"
-                      f"  ({escape(r['rel'])})")
+                      f"{escape(str(r['url_path']).replace('{{baseUrl}}', ''))}"
+                      f"  ({escape(str(r['rel']))})")
     for item in cs["moved"]:
         op = item["operation"]
         console.print(f"[yellow]~ moved[/]    {op['method'].upper():6} "
-                      f"{escape(item['previous_key'].split(' ', 1)[-1])}"
-                      f" → {escape(op['path'])}")
+                      f"{escape(str(item['previous_key'].split(' ', 1)[-1]))}"
+                      f" → {escape(str(op['path']))}")
     for item in cs["changed"]:
         op, r = item["operation"], item["request"]
         console.print(f"[cyan]Δ changed[/]  {op['method'].upper():6} "
-                      f"{escape(op['path'])}  ({escape(r['rel'])})")
+                      f"{escape(str(op['path']))}  ({escape(str(r['rel']))})")
         for d in item["diffs"]:
             if not d.get("skipped"):
                 tag = "note" if d["change"] == "note" else d["change"]
                 console.print(f"            [dim]{tag:8}[/] "
-                              f"{escape(d['detail'])}")
+                              f"{escape(str(d['detail']))}")
     if cs["skipped_count"]:
         console.print(f"[dim]({cs['skipped_count']} previously skipped "
                       "diffs hidden)[/]")
@@ -132,11 +133,13 @@ def _cmd_schema_diff(args):
     for key, op in new.items():
         if key not in old:
             console.print(
-                f"[green]+ {op['method'].upper():6} {escape(op['path'])}[/]")
+                f"[green]+ {op['method'].upper():6}"
+                f" {escape(str(op['path']))}[/]")
     for key, op in old.items():
         if key not in new:
             console.print(
-                f"[red]- {op['method'].upper():6} {escape(op['path'])}[/]")
+                f"[red]- {op['method'].upper():6}"
+                f" {escape(str(op['path']))}[/]")
     for key, op in new.items():
         if key in old:
             prev = old[key]
@@ -153,10 +156,11 @@ def _cmd_schema_diff(args):
                                    "responses": prev["responses"]})
             if diffs:
                 console.print(
-                    f"[cyan]Δ {op['method'].upper():6} {escape(op['path'])}[/]")
+                    f"[cyan]Δ {op['method'].upper():6}"
+                    f" {escape(str(op['path']))}[/]")
                 for d in diffs:
                     console.print(f"    [dim]{d['change']:8}[/] "
-                                  f"{escape(d['detail'])}")
+                                  f"{escape(str(d['detail']))}")
     return 0
 
 

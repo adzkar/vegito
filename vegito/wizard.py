@@ -142,12 +142,14 @@ def _review(changeset: dict, dirs: list[str]) -> bool:
             req, op = item["request"], item["operation"]
             actionable = [d for d in item["diffs"] if d["change"] != "note"]
             notes = [d for d in item["diffs"] if d["change"] == "note"]
-            console.print(f"\n  [bold]{escape(req['name'])}[/]  "
-                          f"({escape(req['rel'])})"
-                          f"  {op['method'].upper()} {escape(op['path'])}")
+            console.print(f"\n  [bold]{escape(str(req['name']))}[/]  "
+                          f"({escape(str(req['rel']))})"
+                          f"  {op['method'].upper()}"
+                          f" {escape(str(op['path']))}")
             for d in notes:
                 if not d.get("skipped"):
-                    console.print(f"    [dim]note: {escape(d['detail'])}[/]")
+                    console.print(f"    [dim]note: "
+                                  f"{escape(str(d['detail']))}[/]")
             if actionable:
                 choices = [Choice(d["detail"], value=n,
                                   checked=d["action"] == "apply"
@@ -204,7 +206,7 @@ def run(schema: str | None = None, collection: str | None = None):
 
     conv_line = format_conventions(changeset.get("conventions"))
     if conv_line:
-        console.print(f"[dim]conventions: {escape(conv_line)}[/]")
+        console.print(f"[dim]conventions: {escape(str(conv_line))}[/]")
 
     if not any([changeset["added"], changeset["removed"],
                 changeset["changed"], changeset["moved"]]):
