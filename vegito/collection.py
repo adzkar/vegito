@@ -7,7 +7,12 @@ from pathlib import Path
 
 from ruamel.yaml import YAML
 
-from .common import extract_path_params, flatten_fields, norm_path
+from .common import (
+    extract_path_params,
+    fingerprint,
+    flatten_fields,
+    norm_path,
+)
 
 _yaml = YAML(typ="safe")
 
@@ -124,7 +129,7 @@ def collection_conventions(reqs: list[dict]) -> dict:
             h_names.setdefault(lname, str(entry.get("name") or lname))
         cfg = req.get("auth")
         if isinstance(cfg, dict) and cfg.get("type") not in (None, "inherit"):
-            key = json.dumps(cfg, sort_keys=True, default=str)
+            key = fingerprint(cfg)
             a_votes[key] += 1
             a_configs[key] = dict(cfg)
     headers = {}

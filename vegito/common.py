@@ -142,9 +142,19 @@ def _json_type(val) -> str:
     return "string"
 
 
+def _canon_json(node):
+    """Recursively stringify mapping keys — ``sort_keys`` compares raw keys
+    and raises TypeError on mixed types (YAML allows non-string keys)."""
+    if isinstance(node, dict):
+        return {str(k): _canon_json(v) for k, v in node.items()}
+    if isinstance(node, list):
+        return [_canon_json(v) for v in node]
+    return node
+
+
 def fingerprint(data) -> str:
     """Stable short hash of a JSON-able structure."""
-    raw = json.dumps(data, sort_keys=True, default=str)
+    raw = json.dumps(_canon_json(data), sort_keys=True, default=str)
     return hashlib.sha256(raw.encode()).hexdigest()[:12]
 
 

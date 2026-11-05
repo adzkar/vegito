@@ -536,6 +536,17 @@ def test_conventions_exclude_removed_requests(coll):
     assert "x-org-key" not in conv["headers"]
 
 
+def test_conventions_mixed_type_auth_keys():
+    """Non-string auth keys (valid YAML) can't crash convention voting."""
+    from vegito.collection import collection_conventions
+    from vegito.common import fingerprint
+    cfg = {"type": "bearer", 5: "stray", "nested": {7: "x"}}
+    conv = collection_conventions(
+        [{"headers": {}, "auth": cfg}, {"headers": {}, "auth": dict(cfg)}])
+    assert conv["auth"]["count"] == 2
+    assert fingerprint({5: "x", "a": 1}) == fingerprint({"5": "x", "a": 1})
+
+
 def test_conventions_modal_min2():
     """Modal header value/auth config wins only with >=2 uses."""
     from vegito.collection import collection_conventions
