@@ -791,6 +791,47 @@ def test_execute_plan_tolerates_malformed_moved_and_changed(coll):
     assert (root / "demo/Widgets/demo_widgets_create.yml").exists()
 
 
+def test_retarget_tolerates_malformed_shapes():
+    """Malformed changed items/diffs and convention entries lacking
+    value/config pass through retarget instead of crashing it."""
+    from vegito.diff import retarget_convention_diffs
+    plan = {"changed": [
+                "oops",                      # non-dict item
+                {"diffs": ["oops", {"key": "header.X"}]},  # malformed diffs
+                {"diffs": [{"change": "added", "key": "header.X-Key",
+                            "data": {"convention_value": "x"},
+                            "detail": "hdr (convention: x)"}]},
+                {"diffs": [{"change": "convention", "key": "header.X-Key"}]},
+                {"diffs": [{"change": "convention", "key": "auth"}]}],
+            "conventions": {"headers": {"x-key": {"proposed": True}},
+                            "auth": {"proposed": True}}}
+    retarget_convention_diffs(plan)
+    kept = plan["changed"]
+    assert kept[0] == "oops"
+    assert kept[1]["diffs"] == ["oops", {"key": "header.X"}]
+    # convention entry without a value is dead — the 'added' diff loses
+    # its convention payload, the 'convention' diff drops with it
+    assert kept[2]["diffs"] == [
+        {"change": "added", "key": "header.X-Key", "data": {},
+         "detail": "hdr"}]
+    assert len(kept) == 3  # items emptied by retarget are pruned
+
+
+def test_execute_plan_tolerates_malformed_changed_via_retarget(coll):
+    """A non-dict changed entry reaches the per-item error path — retarget
+    runs before the try-wrapped loops and must not crash first."""
+    root, _, v2 = coll
+    ops, reqs, cs = _changeset(v2, root)
+    plan = changeset_to_plan(cs, str(v2), root)
+    plan["changed"].append("oops")
+    for item in plan["added"]:
+        item["folder"] = item["folder"] or "demo/Widgets"
+    manifest = load_manifest(root)
+    report = execute_plan(root, plan, ops, reqs, manifest)
+    assert any("oops" in e for e in report["errors"])
+    assert (root / "demo/Widgets/demo_widgets_create.yml").exists()
+
+
 def test_conventions_modal_min2():
     """Modal header value/auth config wins only with >=2 uses."""
     from vegito.collection import collection_conventions

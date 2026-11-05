@@ -119,32 +119,48 @@ def retarget_convention_diffs(container: dict) -> None:
     skipped_lost = 0
     changed = []
     for item in container.get("changed") or []:
+        if not isinstance(item, dict):
+            # Malformed entries pass through untouched — the caller's
+            # per-item error handling reports them.
+            changed.append(item)
+            continue
         had_diffs = bool(item.get("diffs"))
         diffs = []
         for d in item.get("diffs") or []:
-            if d["change"] == "added" and d["key"].startswith("header."):
-                data = d.get("data") or {}
-                detail = d.get("detail") or ""
+            if not isinstance(d, dict):
+                diffs.append(d)
+                continue
+            change, key = d.get("change"), d.get("key")
+            if change == "added" and isinstance(key, str) \
+                    and key.startswith("header."):
+                data = d.get("data")
+                data = dict(data) if isinstance(data, dict) else {}
+                detail = d.get("detail")
+                detail = detail if isinstance(detail, str) else ""
                 data.pop("convention_value", None)
                 # Strip any trailing convention suffix — a hand-edit can
                 # leave it diverged from convention_value.
                 detail = re.sub(r" \(convention: .*\)$", "", detail)
-                c = headers.get(d["key"][len("header."):].lower())
-                if c is not None:
+                c = headers.get(key[len("header."):].lower())
+                if isinstance(c, dict) and c.get("value"):
                     data["convention_value"] = c["value"]
                     detail += f" (convention: {c['value']})"
                 d["data"], d["detail"] = data, detail
                 diffs.append(d)
                 continue
-            if d["change"] != "convention":
+            if change != "convention" or not isinstance(key, str):
                 diffs.append(d)
                 continue
-            if d["key"].startswith("header."):
-                c = headers.get(d["key"][len("header."):].lower())
-                if c is None:
+            if key.startswith("header."):
+                c = headers.get(key[len("header."):].lower())
+                # A convention entry without a value is malformed — the
+                # diff's convention is gone, so the diff drops with it.
+                if not (isinstance(c, dict) and c.get("value")):
                     if d.get("skipped"):
                         skipped_lost += 1
                     continue
+                c = dict(c)
+                c.setdefault("name", key[len("header."):])
                 data = {"name": c["name"], "value": c["value"]}
                 if d.get("data") != data:
                     if d.pop("skipped", None):
@@ -152,15 +168,16 @@ def retarget_convention_diffs(container: dict) -> None:
                 d["data"] = data
                 d["detail"] = _header_conv_detail(c)
                 diffs.append(d)
-            elif d["key"] == "auth":
-                if auth is None:
+            elif key == "auth":
+                cfg = auth.get("config") if isinstance(auth, dict) else None
+                if not isinstance(cfg, dict):
                     if d.get("skipped"):
                         skipped_lost += 1
                     continue
-                if d.get("data") != auth["config"]:
+                if d.get("data") != cfg:
                     if d.pop("skipped", None):
                         skipped_lost += 1
-                d["data"] = deepcopy(auth["config"])
+                d["data"] = deepcopy(cfg)
                 d["detail"] = _auth_conv_detail(auth)
                 diffs.append(d)
             else:
