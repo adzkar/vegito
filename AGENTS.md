@@ -160,6 +160,16 @@ Conventions observed in the target collection (replicate in `skeleton.py`):
   command per supported installer (pipx / uv tool / pip) — the README
   Uninstall block is the reference.
 
+## Working on issues / PRs
+
+- One worktree per issue: `git worktree add ../vegito-issue-N -b <type>/<slug>`
+  (e.g. `fix/new-folder-choice`, `feat/conventions`) — never work directly
+  in the master checkout.
+- Stacked work: branch off the feature branch, not master, and set the PR
+  base accordingly (`gh pr create --base <parent-branch>`).
+- Cleanup after merge: `git worktree remove ../vegito-issue-N`, delete the
+  merged local branch, and `git fetch --prune` the remote.
+
 ## Commit conventions
 
 Conventional Commits: `type(scope): imperative description` (scope optional,
