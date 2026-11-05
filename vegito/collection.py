@@ -180,7 +180,9 @@ def env_var_names(root: str | Path) -> set[str]:
             doc = _yaml.load(p.read_text())
         except Exception:
             continue
-        for var in (doc or {}).get("variables") or []:
+        if not isinstance(doc, dict):
+            continue
+        for var in doc.get("variables") or []:
             if isinstance(var, dict) and var.get("name"):
                 names.add(str(var["name"]))
     return names

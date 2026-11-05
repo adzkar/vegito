@@ -1241,6 +1241,10 @@ def test_env_var_names(tmp_path):
         "name: A\nvariables:\n  - name: token\n  - name: org_key\n")
     assert env_var_names(tmp_path) == {"token", "org_key"}
     assert env_var_names(tmp_path / "nope") == set()
+    # non-mapping docs (list / bare scalar) are skipped, not crashed on
+    (envs / "list.yml").write_text("- a\n- b\n")
+    (envs / "scalar.yml").write_text("just a string\n")
+    assert env_var_names(tmp_path) == {"token", "org_key"}
 
 
 def test_cold_start_proposals(tmp_path):
