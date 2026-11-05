@@ -894,6 +894,23 @@ def test_blank_header_is_not_a_convention_outlier():
                 if d["change"] == "convention"]
 
 
+def test_query_param_case_mismatch_not_removed():
+    """File param 'Page' vs schema 'page' must not emit a removed diff —
+    the added check is already case-insensitive (file keys are lower)."""
+    from vegito.diff import diff_endpoint
+    op = dict(_op_with_header(),
+              query={"page": {"name": "page", "required": False,
+                              "description": "", "type": "integer"}},
+              headers={})
+    req = {"url_path": "{{baseUrl}}/x/", "path_params": [], "body": {},
+           "docs": "", "rel": "X.yml", "name": "X", "method": "get",
+           "norm": "/x", "auth": None, "headers": {},
+           "query": {"page": {"name": "Page", "value": "2",
+                              "type": "query"}}}
+    assert not [d for d in diff_endpoint(op, req)
+                if d["key"].startswith("param.query.")]
+
+
 def _deviating_collection(root):
     """Make List.yml deviate from a 2-vote bearer convention. Returns its path."""
     (root / "demo/Widgets/Filled2.yml").write_text(textwrap.dedent("""\

@@ -234,8 +234,9 @@ def diff_endpoint(op: dict, req: dict, prev: dict | None = None,
                 f"param.query.{name}", "added",
                 f"query param '{name}' added"
                 + (" (required)" if info.get("required") else ""), info))
+    schema_query = {n.lower() for n in op["query"]}
     for lname, entry in req["query"].items():
-        if entry.get("name") not in op["query"]:
+        if lname not in schema_query:
             diffs.append(_fdiff(
                 f"param.query.{entry.get('name')}", "removed",
                 f"query param '{entry.get('name')}' no longer in schema"))
