@@ -1408,6 +1408,29 @@ def test_retarget_resurfaces_renamed_convention_skip():
     assert container["skipped_count"] == 1
 
 
+def test_auth_convention_diff_snapshots_config(tmp_path):
+    """The auth diff's data is a snapshot, not an alias — _name_proposals
+    mutates conventions["auth"]["config"] in place, and retarget's
+    resurface check must observe the pre-rename value."""
+    from vegito.diff import retarget_convention_diffs
+    op = dict(_op_with_header(),
+              headers={"x-custom-key": {"name": "X-Custom-Key"}})
+    reqs = [_cold_req("", {"type": "bearer", "token": ""}),
+            _cold_req("", {"type": "bearer", "token": ""})]
+    cs = build_changeset([op], reqs, None, tmp_path)
+    cfg = cs["conventions"]["auth"]["config"]
+    d = next(d for i in cs["changed"] for d in i["diffs"]
+             if d["key"] == "auth")
+    assert d["data"] == cfg and d["data"] is not cfg
+
+    # simulate a wizard rename over a stale skip flag, then retarget
+    d["skipped"] = True
+    cfg["token"] = "{{renamed}}"   # what _name_proposals writes
+    retarget_convention_diffs(cs)
+    assert "skipped" not in d
+    assert d["data"]["token"] == "{{renamed}}"
+
+
 def test_var_ref_normalizes_and_validates():
     """Proposal answers wrap to {{var}}; malformed input is rejected."""
     from vegito.wizard import _var_ref
