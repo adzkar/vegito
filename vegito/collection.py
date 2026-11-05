@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+from collections import Counter
 from pathlib import Path
 
 from ruamel.yaml import YAML
@@ -88,6 +89,8 @@ def parse_request_file(path: Path, root: Path) -> dict | None:
         "path_params": path_params,
         "query": query,
         "headers": headers,
+        "auth": http.get("auth") if isinstance(http.get("auth"), dict)
+                else None,
         "body": body_fields,
         "docs": str(doc.get("docs") or "").strip(),
     }
@@ -99,6 +102,43 @@ def scan_collection(root: str | Path) -> list[dict]:
     return [req for p in sorted(root.rglob("*.y*ml"))
             if is_request_file(p.relative_to(root)) and
             (req := parse_request_file(p, root))]
+
+
+def collection_conventions(reqs: list[dict]) -> dict:
+    """Modal per-field conventions across the collection (>=2 uses win).
+
+    Returns ``{"headers": {lname: {"name", "value", "count"}},
+    "auth": {"config": {...}, "count": n} | None}`` — the values that
+    generated skeletons should inherit and outliers are flagged against.
+    """
+    h_votes: dict[str, Counter] = {}
+    h_names: dict[str, str] = {}
+    a_votes: Counter = Counter()
+    a_configs: dict[str, dict] = {}
+    for req in reqs:
+        for lname, entry in req["headers"].items():
+            value = str(entry.get("value") or "")
+            if not value:
+                continue
+            h_votes.setdefault(lname, Counter())[value] += 1
+            h_names.setdefault(lname, str(entry.get("name") or lname))
+        cfg = req.get("auth")
+        if isinstance(cfg, dict) and cfg.get("type") not in (None, "inherit"):
+            key = json.dumps(cfg, sort_keys=True, default=str)
+            a_votes[key] += 1
+            a_configs[key] = dict(cfg)
+    headers = {}
+    for lname, votes in h_votes.items():
+        value, count = votes.most_common(1)[0]
+        if count >= 2:
+            headers[lname] = {"name": h_names[lname], "value": value,
+                              "count": count}
+    auth = None
+    if a_votes:
+        key, count = a_votes.most_common(1)[0]
+        if count >= 2:
+            auth = {"config": a_configs[key], "count": count}
+    return {"headers": headers, "auth": auth}
 
 
 def list_dirs(root: str | Path) -> list[str]:

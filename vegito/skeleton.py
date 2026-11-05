@@ -88,18 +88,23 @@ def _param_lines(op: dict, indent: str) -> list[str]:
     return lines
 
 
-def _header_lines(op: dict, indent: str) -> list[str]:
+def _header_lines(op: dict, indent: str,
+                  conventions: dict | None = None) -> list[str]:
     lines = []
     pad, item = indent + "  ", indent + "    "
-    for info in op["headers"].values():
-        lines += [f"{pad}- name: {info['name']}", f'{item}value: ""']
+    conv = (conventions or {}).get("headers") or {}
+    for lname, info in op["headers"].items():
+        value = (conv.get(lname) or {}).get("value", "")
+        lines += [f"{pad}- name: {info['name']}",
+                  f"{item}value: {json.dumps(value)}"]
         if info.get("description"):
             lines.append(_yaml_scalar("description", info["description"], item))
     return lines
 
 
 def _request_lines(op: dict, indent: str, url: str,
-                   url_first: bool = False) -> list[str]:
+                   url_first: bool = False,
+                   conventions: dict | None = None) -> list[str]:
     """A request-shaped block: `http:` body (method first) or an example's
     `request:` (url first, matching the collection's generated examples)."""
     head = ([f'{indent}url: "{url}"',
@@ -108,7 +113,7 @@ def _request_lines(op: dict, indent: str, url: str,
              f'{indent}url: "{url}"'])
     body_tpl = _body_template(op)
     lines = list(head)
-    headers = _header_lines(op, indent)
+    headers = _header_lines(op, indent, conventions)
     if headers:
         lines.append(f"{indent}headers:")
         lines += headers
@@ -125,7 +130,8 @@ def _request_lines(op: dict, indent: str, url: str,
 
 
 def render_request_file(op: dict, seq: int,
-                        name: str | None = None) -> str:
+                        name: str | None = None,
+                        conventions: dict | None = None) -> str:
     """Full .yml text for a new request, mirroring the collection's style."""
     url = "{{baseUrl}}" + schema_path_to_bruno(op["path"])
     status, phrase, resp_tpl = _response_template(op)
@@ -137,17 +143,27 @@ def render_request_file(op: dict, seq: int,
         info += ["  tags:", f"    - {op['tags'][0]}"]
     parts.append("\n".join(info))
 
-    http_lines = ["http:"] + _request_lines(op, "  ", url)
+    http_lines = ["http:"] + _request_lines(op, "  ", url,
+                                            conventions=conventions)
     if op["auth_required"]:
-        http_lines += ["  auth:", "    type: bearer",
-                       '    token: "{{token}}"']
+        cfg = ((conventions or {}).get("auth") or {}).get("config") \
+            or {"type": "bearer", "token": "{{token}}"}
+        http_lines.append("  auth:")
+        for k in ["type", *[k for k in cfg if k != "type"]]:
+            if k not in cfg:
+                continue
+            v = cfg[k]
+            http_lines.append(_yaml_scalar(k, v, "    ")
+                              if isinstance(v, str)
+                              else f"    {k}: {json.dumps(v)}")
     parts.append("\n".join(http_lines))
 
     parts.append(_SETTINGS)
 
     status_name = f"{status} Response"
     ex = ["examples:", f"  - name: {status_name}", "    request:"]
-    ex += _request_lines(op, "      ", url, url_first=True)
+    ex += _request_lines(op, "      ", url, url_first=True,
+                         conventions=conventions)
     ex += ["    response:", f"      status: {status}",
            f"      statusText: {phrase}", "      headers:",
            "        - name: Content-Type",

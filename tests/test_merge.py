@@ -14,7 +14,7 @@ from vegito.collection import scan_collection
 from vegito.diff import build_changeset
 from vegito.manifest import load as load_manifest
 from vegito.manifest import save as save_manifest
-from vegito.planfile import changeset_to_plan
+from vegito.planfile import changeset_to_plan, load_plan, save_plan
 from vegito.runner import execute_plan
 from vegito.schema import load_schema, parse_operations
 
@@ -494,3 +494,129 @@ def test_create_request_strips_name(coll):
     blank = create_request(root, "demo", op, "   ")
     assert blank.name == "web_get_users.yml"
     assert _yaml.load(blank.read_text())["info"]["name"] == "web_get_users"
+
+
+def _conv():
+    return {"headers": {"x-org-key": {"name": "X-Org-Key",
+                                      "value": "{{org}}", "count": 2}},
+            "auth": {"config": {"type": "bearer", "token": "{{jwt}}"},
+                     "count": 2}}
+
+
+def _op_with_header():
+    return {"operation_id": "x", "method": "get", "path": "/x/", "norm": "/x",
+            "path_params": [], "query": {},
+            "headers": {"x-org-key": {"name": "X-Org-Key"}},
+            "body": {}, "auth_required": True, "responses": {}, "tags": [],
+            "description": ""}
+
+
+def test_conventions_modal_min2():
+    """Modal header value/auth config wins only with >=2 uses."""
+    from vegito.collection import collection_conventions
+
+    def req(hval, auth):
+        return {"headers": {"x-org-key": {"name": "X-Org-Key",
+                                          "value": hval}} if hval else {},
+                "auth": auth}
+
+    reqs = [req("{{org}}", {"type": "bearer", "token": "{{jwt}}"}),
+            req("{{org}}", {"type": "bearer", "token": "{{jwt}}"}),
+            req("abc", None)]
+    conv = collection_conventions(reqs)
+    assert conv["headers"]["x-org-key"]["value"] == "{{org}}"
+    assert conv["headers"]["x-org-key"]["count"] == 2
+    assert conv["auth"]["config"]["token"] == "{{jwt}}"
+
+    single = collection_conventions([req("{{a}}", None), req("{{b}}", None)])
+    assert single["headers"] == {}
+    blanks = collection_conventions([req("", None), req("", None)])
+    assert blanks["headers"] == {} and blanks["auth"] is None
+
+
+def test_convention_outlier_diff():
+    """Requests deviating from the convention get a 'convention' diff."""
+    from vegito.diff import diff_endpoint
+    op, conv = _op_with_header(), _conv()
+    req = {"url_path": "{{baseUrl}}/x/", "path_params": [], "query": {},
+           "body": {}, "docs": "", "rel": "X.yml", "name": "X",
+           "method": "get", "norm": "/x",
+           "headers": {"x-org-key": {"name": "X-Org-Key", "value": "abc"}},
+           "auth": {"type": "basic", "username": "u", "password": "p"}}
+    diffs = diff_endpoint(op, req, conventions=conv)
+    conv_diffs = {d["key"]: d for d in diffs if d["change"] == "convention"}
+    assert set(conv_diffs) == {"header.X-Org-Key", "auth"}
+    assert conv_diffs["header.X-Org-Key"]["data"]["value"] == "{{org}}"
+
+    ok = dict(req, headers={"x-org-key": {"name": "X-Org-Key",
+                                          "value": "{{org}}"}},
+              auth={"type": "bearer", "token": "{{jwt}}"})
+    assert not [d for d in diff_endpoint(op, ok, conventions=conv)
+                if d["change"] == "convention"]
+
+    missing = dict(req, headers={}, auth=None)
+    ds = {d["key"]: d for d in diff_endpoint(op, missing, conventions=conv)}
+    assert ds["header.X-Org-Key"]["data"]["convention_value"] == "{{org}}"
+    assert not [d for d in ds.values() if d["change"] == "convention"]
+
+
+def test_skeleton_uses_conventions():
+    """Generated file gets convention header value and auth config."""
+    from vegito.skeleton import render_request_file
+    doc = _yaml.load(render_request_file(_op_with_header(), 1,
+                                         conventions=_conv()))
+    assert doc["http"]["headers"][0]["value"] == "{{org}}"
+    assert doc["http"]["auth"] == {"type": "bearer", "token": "{{jwt}}"}
+    assert doc["examples"][0]["request"]["headers"][0]["value"] == "{{org}}"
+
+
+def test_convention_apply_updates_values(tmp_path):
+    """Applying a convention diff sets header value/auth in place."""
+    from vegito.apply import patch_request_file
+    f = tmp_path / "Req.yml"
+    f.write_text(textwrap.dedent("""\
+        info: {name: Req, type: http}
+        http:
+          method: GET
+          url: "{{baseUrl}}/x/"
+          headers:
+            - name: X-Org-Key
+              value: abc
+              description: keep me
+          auth:
+            type: basic
+            username: u
+        examples:
+          - name: 200 Response
+            request:
+              url: "{{baseUrl}}/x/"
+              method: GET
+              headers:
+                - name: X-Org-Key
+                  value: abc
+                  description: keep me
+            response: {status: 200}
+        """))
+    patch_request_file(f, [
+        {"key": "header.X-Org-Key", "change": "convention",
+         "data": {"name": "X-Org-Key", "value": "{{org}}"}},
+        {"key": "auth", "change": "convention",
+         "data": {"type": "bearer", "token": "{{jwt}}"}},
+    ])
+    doc = _yaml.load(f.read_text())
+    h = doc["http"]["headers"][0]
+    assert h["value"] == "{{org}}" and h["description"] == "keep me"
+    assert doc["http"]["auth"] == {"type": "bearer", "token": "{{jwt}}"}
+    ex = doc["examples"][0]["request"]
+    assert ex["headers"][0]["value"] == "{{org}}"
+    assert "auth" not in ex
+
+
+def test_plan_roundtrips_conventions(coll, tmp_path):
+    """Plan files carry the conventions map so apply works standalone."""
+    root, _, v2 = coll
+    _, _, cs = _changeset(v2, root)
+    out = tmp_path / "p.yml"
+    save_plan(changeset_to_plan(cs, str(v2), root), out)
+    loaded = load_plan(out)
+    assert loaded["conventions"]["auth"]["config"]["token"] == "{{token}}"

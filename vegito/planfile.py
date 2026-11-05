@@ -16,6 +16,7 @@ def changeset_to_plan(changeset: dict, schema_path: str, root: Path) -> dict:
         "schema": str(schema_path),
         "collection": str(root),
         "generated": datetime.now(timezone.utc).isoformat(),
+        "conventions": changeset.get("conventions"),
         "added": [], "removed": [], "moved": [], "changed": [],
     }
     for item in changeset["added"]:

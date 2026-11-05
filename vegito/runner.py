@@ -6,6 +6,7 @@ from pathlib import Path
 
 from . import manifest as mf
 from .apply import archive_file, create_request, delete_file, patch_request_file
+from .collection import collection_conventions
 from .diff import _sig_for_diff
 
 
@@ -24,6 +25,8 @@ def execute_plan(root: Path, plan: dict, ops: list[dict], reqs: list[dict],
     endpoints = manifest.setdefault("endpoints", {})
     manual = manifest.setdefault("manual_files", [])
 
+    conventions = plan.get("conventions") or collection_conventions(reqs)
+
     # --- added endpoints ---
     for item in plan.get("added", []):
         op = item["operation"]
@@ -33,7 +36,7 @@ def execute_plan(root: Path, plan: dict, ops: list[dict], reqs: list[dict],
             continue
         try:
             path = create_request(root, item.get("folder") or "", op,
-                                  item.get("name"))
+                                  item.get("name"), conventions)
             rel = str(path.relative_to(root))
             endpoints[key] = mf.endpoint_snapshot(op, rel, {})
             report["created"].append(f"{_ep(op['method'], op['path'])} → {rel}")

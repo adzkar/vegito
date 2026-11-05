@@ -1,6 +1,7 @@
 """Compute a changeset between schema operations and collection requests."""
 from __future__ import annotations
 
+from .collection import collection_conventions
 from .common import _PARAM_RE, fingerprint, path_segments
 
 
@@ -31,12 +32,48 @@ def _response_diffs(op: dict, prev_responses: dict | None) -> list[dict]:
     return diffs
 
 
-def diff_endpoint(op: dict, req: dict, prev: dict | None = None) -> list[dict]:
+def _convention_diffs(op: dict, req: dict,
+                      conventions: dict | None) -> list[dict]:
+    """Diffs where a matched request deviates from collection conventions.
+
+    Only fields the schema still declares are checked (a dropped header is
+    governed by its 'removed' diff), and only requests that carry the field
+    — a missing or ``inherit`` auth can't be told apart from deliberate
+    inheritance, so it is left alone.
+    """
+    conv = conventions or {}
+    diffs = []
+    for lname, c in (conv.get("headers") or {}).items():
+        if lname not in op["headers"]:
+            continue
+        entry = req["headers"].get(lname)
+        if entry is None or str(entry.get("value") or "") == c["value"]:
+            continue
+        diffs.append(_fdiff(
+            f"header.{c['name']}", "convention",
+            f"header '{c['name']}' differs from collection convention "
+            f"'{c['value']}'", {"name": c["name"], "value": c["value"]}))
+    auth = conv.get("auth")
+    req_auth = req.get("auth")
+    if auth and isinstance(req_auth, dict) \
+            and req_auth.get("type") not in (None, "inherit") \
+            and req_auth != auth["config"]:
+        diffs.append(_fdiff(
+            "auth", "convention",
+            f"auth differs from collection convention "
+            f"({auth['config'].get('type')})", auth["config"]))
+    return diffs
+
+
+def diff_endpoint(op: dict, req: dict, prev: dict | None = None,
+                  conventions: dict | None = None) -> list[dict]:
     """Field-level diffs for a matched (operation, request) pair.
 
     ``prev`` is the manifest's last-seen schema snapshot for the endpoint
     (``{"body": ..., "responses": ...}``); note-level diffs are computed
     against it since files don't record schema metadata like requiredness.
+    ``conventions`` is the collection_conventions() map — it enriches
+    'header added' diffs and flags requests deviating from it.
     """
     prev = prev or {}
     prev_body = prev.get("body") or {}
@@ -94,12 +131,18 @@ def diff_endpoint(op: dict, req: dict, prev: dict | None = None) -> list[dict]:
                 f"param.query.{entry.get('name')}", "removed",
                 f"query param '{entry.get('name')}' no longer in schema"))
 
+    conv_headers = (conventions or {}).get("headers") or {}
     for lname, info in op["headers"].items():
         if lname not in req["headers"]:
-            diffs.append(_fdiff(
-                f"header.{info['name']}", "added",
-                f"header '{info['name']}' added"
-                + (" (required)" if info.get("required") else ""), info))
+            conv = conv_headers.get(lname)
+            data = dict(info)
+            detail = f"header '{info['name']}' added" \
+                + (" (required)" if info.get("required") else "")
+            if conv:
+                data["convention_value"] = conv["value"]
+                detail += f" (convention: {conv['value']})"
+            diffs.append(_fdiff(f"header.{info['name']}", "added",
+                                detail, data))
     for lname, entry in req["headers"].items():
         if lname not in op["headers"]:
             diffs.append(_fdiff(
@@ -129,6 +172,7 @@ def diff_endpoint(op: dict, req: dict, prev: dict | None = None) -> list[dict]:
         diffs.append(_fdiff("docs", "modified",
                             "description changed in schema", op["description"]))
 
+    diffs.extend(_convention_diffs(op, req, conventions))
     diffs.extend(_response_diffs(op, prev_responses))
     return diffs
 
@@ -159,6 +203,7 @@ def build_changeset(ops: list[dict], reqs: list[dict],
     opid_to_key = {v.get("operation_id"): k for k, v in state.items()
                    if v.get("operation_id")}
 
+    conventions = collection_conventions(reqs)
     op_index = {(o["method"], o["norm"]): o for o in ops}
     req_index = {(r["method"], r["norm"]): r for r in reqs}
 
@@ -183,7 +228,7 @@ def build_changeset(ops: list[dict], reqs: list[dict],
         matched_reqs.add(id(req))
         state_key = f"{op['method']} {op['norm']}"
         entry_state = state.get(state_key) or {}
-        diffs = diff_endpoint(op, req, entry_state)
+        diffs = diff_endpoint(op, req, entry_state, conventions)
         skipped = entry_state.get("skipped") or {}
         for d in diffs:
             if skipped.get(d["key"]) == _sig_for_diff(d, op):
@@ -203,4 +248,5 @@ def build_changeset(ops: list[dict], reqs: list[dict],
         removed.append({"request": req, "action": "archive"})
 
     return {"added": added, "removed": removed, "changed": changed,
-            "moved": moved, "skipped_count": skipped_count}
+            "moved": moved, "skipped_count": skipped_count,
+            "conventions": conventions}

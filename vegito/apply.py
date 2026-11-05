@@ -156,15 +156,30 @@ def _patch_req_block(block: dict, key: str, d: dict):
                                if not (p.get("type") == "query" and
                                        str(p.get("name", "")).lower() == name.lower())]
         return
+    if key == "auth":
+        if d["change"] == "convention" and d["data"]:
+            block["auth"] = dict(d["data"])
+        return
     if key.startswith("header."):
         name = key[len("header."):]
         headers = block.setdefault("headers", [])
         if d["change"] == "added":
             info = d["data"] or {}
-            entry = {"name": info.get("name", name), "value": ""}
+            entry = {"name": info.get("name", name),
+                     "value": info.get("convention_value", "")}
             if info.get("description"):
                 entry["description"] = info["description"]
             headers.append(entry)
+        elif d["change"] == "convention":
+            info = d["data"] or {}
+            target = next((h for h in headers
+                           if str(h.get("name", "")).lower() == name.lower()),
+                          None)
+            if target is None:
+                headers.append({"name": info.get("name", name),
+                                "value": info.get("value", "")})
+            else:
+                target["value"] = info.get("value", "")
         else:
             block["headers"] = [h for h in headers
                                 if str(h.get("name", "")).lower() != name.lower()]
@@ -226,6 +241,8 @@ def patch_request_file(path: Path, diffs: list[dict]):
                 doc["docs"] = d["data"]
             else:
                 doc.pop("docs", None)
+        elif key == "auth":
+            _patch_req_block(http, key, d)
         elif not key.startswith("response."):
             _patch_req_block(http, key, d)
             if isinstance(example_req, dict):
@@ -235,7 +252,8 @@ def patch_request_file(path: Path, diffs: list[dict]):
 
 # ---------- file-level operations ----------
 
-def create_request(root: Path, folder: str, op: dict, name: str | None) -> Path:
+def create_request(root: Path, folder: str, op: dict, name: str | None,
+                   conventions: dict | None = None) -> Path:
     name = (name or "").strip() or None
     target_dir = (root / folder).resolve() if folder else root
     if not str(target_dir).startswith(str(root.resolve()) + "/") \
@@ -248,7 +266,8 @@ def create_request(root: Path, folder: str, op: dict, name: str | None) -> Path:
     while path.exists():
         path = target_dir / f"{safe_filename(name or op['operation_id'])}-{n}.yml"
         n += 1
-    path.write_text(render_request_file(op, next_seq(target_dir), name))
+    path.write_text(render_request_file(op, next_seq(target_dir), name,
+                                        conventions))
     return path
 
 

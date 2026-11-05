@@ -192,6 +192,15 @@ def run(schema: str | None = None, collection: str | None = None):
                   f"{len(reqs)} requests in collection\n"
                   f"{_summary_line(changeset)}")
 
+    conv = changeset.get("conventions") or {}
+    bits = [f"{c['name']} → {c['value']} ({c['count']}×)"
+            for c in (conv.get("headers") or {}).values()]
+    if conv.get("auth"):
+        bits.append(f"auth → {conv['auth']['config'].get('type')} "
+                    f"({conv['auth']['count']}×)")
+    if bits:
+        console.print(f"[dim]conventions: {' · '.join(bits)}[/]")
+
     if not any([changeset["added"], changeset["removed"],
                 changeset["changed"], changeset["moved"]]):
         console.print("\n[bold green]Collection is up to date.[/]")
