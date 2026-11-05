@@ -16,7 +16,7 @@ from .collection import (
     list_dirs,
     scan_collection,
 )
-from .diff import build_changeset
+from .diff import build_changeset, retarget_convention_diffs
 from .planfile import changeset_to_plan
 from .runner import execute_plan, render_report, write_report
 from .schema import load_schema, parse_operations
@@ -182,6 +182,50 @@ def _summary_line(changeset: dict) -> str:
                if c["skipped_count"] else ""))
 
 
+def _var_ref(answer: str) -> str:
+    """Normalize a proposal answer to a {{var}} reference."""
+    return answer if answer.startswith("{{") else f"{{{{{answer}}}}}"
+
+
+def _name_proposals(conv: dict) -> bool:
+    """Prompt for env-var names on cold-start proposals.
+
+    Accepting keeps the proposal (with the typed name); a blank answer
+    drops it. Returns False when the user cancels (abort the run).
+    """
+    headers = conv.get("headers")
+    auth = conv.get("auth") or {}
+    if not any(c.get("proposed") for c in (headers or {}).values()) \
+            and not auth.get("proposed"):
+        return True
+    console.print("[bold]Proposed conventions[/] — enter an env var, "
+                  "blank to skip:")
+    for lname, c in list((headers or {}).items()):
+        if not c.get("proposed"):
+            continue
+        answer = questionary.text(f"  {c['name']}:",
+                                  default=c["value"]).ask()
+        if answer is None:
+            return False
+        answer = answer.strip()
+        if not answer:
+            del headers[lname]
+        else:
+            c["value"] = _var_ref(answer)
+    if auth.get("proposed"):
+        answer = questionary.text(
+            "  bearer token:",
+            default=auth["config"].get("token", "{{token}}")).ask()
+        if answer is None:
+            return False
+        answer = answer.strip()
+        if not answer:
+            conv["auth"] = None
+        else:
+            auth["config"]["token"] = _var_ref(answer)
+    return True
+
+
 def run(schema: str | None = None, collection: str | None = None):
     console.print(Panel.fit("[bold]vegito[/] — sync your Bruno collection "
                             "with a new schema", border_style="cyan"))
@@ -197,12 +241,18 @@ def run(schema: str | None = None, collection: str | None = None):
         ops = parse_operations(doc)
         reqs = scan_collection(root)
         manifest = mf.load(root)
-        changeset = build_changeset(ops, reqs, manifest)
+        changeset = build_changeset(ops, reqs, manifest, root)
         dirs = list_dirs(root)
 
     console.print(f"\n{len(ops)} operations in schema · "
                   f"{len(reqs)} requests in collection\n"
                   f"{_summary_line(changeset)}")
+
+    conv = changeset.get("conventions") or {}
+    if not _name_proposals(conv):
+        console.print("[dim]Aborted — nothing was changed.[/]")
+        return
+    retarget_convention_diffs(changeset)
 
     conv_line = format_conventions(changeset.get("conventions"))
     if conv_line:

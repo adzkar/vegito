@@ -30,7 +30,7 @@ def _cmd_diff(args):
                       "opencollection.yml upward from cwd).[/]")
         return 1
     changeset = build_changeset(parse_operations(load_schema(schema)),
-                                scan_collection(root), load(root))
+                                scan_collection(root), load(root), root)
     _print_changeset(changeset)
     return 0
 
@@ -87,7 +87,7 @@ def _cmd_plan(args):
         console.print("[red]No collection found.[/]")
         return 1
     changeset = build_changeset(parse_operations(load_schema(schema)),
-                                scan_collection(root), load(root))
+                                scan_collection(root), load(root), root)
     out = Path(args.out or "merge-plan.yml")
     save_plan(changeset_to_plan(changeset, str(schema), root), out)
     console.print(f"Plan written to {escape(str(out))} — edit it, then run "

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 
-from .collection import collection_conventions
+from .collection import collection_conventions, collection_proposals, env_var_names
 from .common import _PARAM_RE, fingerprint, path_segments
 
 
@@ -56,20 +56,65 @@ def _convention_diffs(op: dict, req: dict,
             if isinstance(entry, dict) else ""
         if not value or value == c["value"]:
             continue
+        kind = ("proposed convention" if c.get("proposed")
+                else "collection convention")
         diffs.append(_fdiff(
             f"header.{c['name']}", "convention",
-            f"header '{c['name']}' differs from collection convention "
+            f"header '{c['name']}' differs from {kind} "
             f"'{c['value']}'", {"name": c["name"], "value": c["value"]}))
     auth = conv.get("auth")
     req_auth = req.get("auth")
     if auth and isinstance(req_auth, dict) \
             and req_auth.get("type") not in (None, "inherit") \
             and req_auth != auth["config"]:
+        kind = ("proposed convention" if auth.get("proposed")
+                else "collection convention")
         diffs.append(_fdiff(
             "auth", "convention",
-            f"auth differs from collection convention "
+            f"auth differs from {kind} "
             f"({auth['config'].get('type')})", deepcopy(auth["config"])))
     return diffs
+
+
+def retarget_convention_diffs(container: dict) -> None:
+    """Re-sync ``convention`` diffs with the container's conventions map —
+    after the user renamed proposed vars or hand-edited a plan's
+    ``conventions:`` values. Diffs whose convention was removed are
+    dropped, and emptied ``changed`` items are pruned.
+    """
+    conv = container.get("conventions") or {}
+    headers = conv.get("headers") or {}
+    auth = conv.get("auth")
+    for item in container.get("changed") or []:
+        diffs = []
+        for d in item["diffs"]:
+            if d["change"] != "convention":
+                diffs.append(d)
+                continue
+            if d["key"].startswith("header."):
+                c = headers.get(d["key"][len("header."):].lower())
+                if c is None:
+                    continue
+                d["data"] = {"name": c["name"], "value": c["value"]}
+                kind = ("proposed convention" if c.get("proposed")
+                        else "collection convention")
+                d["detail"] = (f"header '{c['name']}' differs from {kind} "
+                               f"'{c['value']}'")
+                diffs.append(d)
+            elif d["key"] == "auth":
+                if auth is None:
+                    continue
+                d["data"] = deepcopy(auth["config"])
+                kind = ("proposed convention" if auth.get("proposed")
+                        else "collection convention")
+                d["detail"] = (f"auth differs from {kind} "
+                               f"({auth['config'].get('type')})")
+                diffs.append(d)
+            else:
+                diffs.append(d)
+        item["diffs"] = diffs
+    container["changed"] = [i for i in container.get("changed") or []
+                            if i["diffs"]]
 
 
 def diff_endpoint(op: dict, req: dict, prev: dict | None = None,
@@ -208,11 +253,15 @@ def _sig_for_diff(d: dict, op: dict) -> str:
 
 
 def build_changeset(ops: list[dict], reqs: list[dict],
-                    manifest: dict | None) -> dict:
+                    manifest: dict | None,
+                    root=None) -> dict:
     """Match operations to requests and produce added/removed/changed lists.
 
     Each diff gets ``skipped: True`` when the manifest records the user
-    previously skipped it with the same schema-side signature.
+    previously skipped it with the same schema-side signature. When the
+    collection yields no conventions at all (a fresh import), passing
+    ``root`` enables cold-start proposals: env-var suggestions marked
+    ``proposed: True`` instead of observed values.
     """
     manifest = manifest or {}
     state = manifest.get("endpoints") or {}
@@ -258,8 +307,11 @@ def build_changeset(ops: list[dict], reqs: list[dict],
 
     # Vote over requests that survive the merge — a file about to be archived
     # would set a convention that evaporates with it.
-    conventions = collection_conventions(
-        [r for r in reqs if id(r) not in removed_ids])
+    survivors = [r for r in reqs if id(r) not in removed_ids]
+    conventions = collection_conventions(survivors)
+    if root is not None and not conventions["headers"] \
+            and not conventions["auth"]:
+        conventions = collection_proposals(survivors, env_var_names(root))
 
     for op, req in matched:
         state_key = f"{op['method']} {op['norm']}"

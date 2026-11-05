@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 from collections import Counter
 from pathlib import Path
 
@@ -154,14 +155,80 @@ def _modal(votes):
 
 def format_conventions(conventions: dict | None) -> str:
     """One-line conventions summary, e.g. ``X-Key → {{org}} (2×) · auth →
-    bearer (3×)`` — for the wizard and `diff`/`plan` output."""
+    bearer (3× proposed)`` — for the wizard and `diff`/`plan` output."""
     conv = conventions or {}
-    bits = [f"{c['name']} → {c['value']} ({c['count']}×)"
+    bits = [f"{c['name']} → {c['value']} ({c['count']}×"
+            + (" proposed" if c.get("proposed") else "") + ")"
             for c in (conv.get("headers") or {}).values()]
     if conv.get("auth"):
-        bits.append(f"auth → {conv['auth']['config'].get('type')} "
-                    f"({conv['auth']['count']}×)")
+        a = conv["auth"]
+        bits.append(f"auth → {a['config'].get('type')} ({a['count']}×"
+                    + (" proposed" if a.get("proposed") else "") + ")")
     return " · ".join(bits)
+
+
+def env_var_names(root: str | Path) -> set[str]:
+    """Variable names defined across ``environments/*.yml``."""
+    names: set[str] = set()
+    for p in sorted((Path(root) / "environments").glob("*.y*ml")):
+        try:
+            doc = _yaml.load(p.read_text())
+        except Exception:
+            continue
+        for var in (doc or {}).get("variables") or []:
+            if isinstance(var, dict) and var.get("name"):
+                names.add(str(var["name"]))
+    return names
+
+
+def _norm_var(name: str) -> str:
+    """Normalize a var/header name for matching: lowercase alnum only."""
+    return re.sub(r"[^a-z0-9]", "", name.lower())
+
+
+def _derive_var_name(header: str, env_names: set[str]) -> str:
+    """Env var name for a header: matching existing env var spelling if one
+    is defined, else a snake_case derivation (leading ``x_`` stripped)."""
+    derived = re.sub(r"[^a-z0-9]+", "_", header.lower()).strip("_")
+    if derived.startswith("x_"):
+        derived = derived[2:]
+    for v in env_names:
+        if _norm_var(v) == _norm_var(derived):
+            return v
+    return derived or "value"
+
+
+def collection_proposals(reqs: list[dict],
+                         env_names: set[str] | None = None) -> dict:
+    """Cold-start convention proposals for collections with no inferred
+    conventions: ``{{var}}`` refs for header *names* recurring in >=2
+    requests, and a ``{{token}}`` bearer config when >=2 bearer blocks
+    exist. Returns the collection_conventions() shape with entries marked
+    ``proposed: True`` — suggestions, not observed votes.
+    """
+    env_names = env_names or set()
+    h_count: dict[str, int] = {}
+    h_names: dict[str, str] = {}
+    bearer = 0
+    for req in reqs:
+        for lname, entry in req["headers"].items():
+            h_count[lname] = h_count.get(lname, 0) + 1
+            h_names.setdefault(lname, str(entry.get("name") or lname))
+        cfg = req.get("auth")
+        if isinstance(cfg, dict) and cfg.get("type") == "bearer":
+            bearer += 1
+    headers = {}
+    for lname, count in h_count.items():
+        if count < 2:
+            continue
+        var = _derive_var_name(h_names[lname], env_names)
+        headers[lname] = {"name": h_names[lname],
+                          "value": "{{" + var + "}}",
+                          "count": count, "proposed": True}
+    token = next((v for v in env_names if _norm_var(v) == "token"), "token")
+    auth = ({"config": {"type": "bearer", "token": "{{" + token + "}}"},
+             "count": bearer, "proposed": True} if bearer >= 2 else None)
+    return {"headers": headers, "auth": auth}
 
 
 def list_dirs(root: str | Path) -> list[str]:

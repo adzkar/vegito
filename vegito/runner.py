@@ -6,8 +6,8 @@ from pathlib import Path
 
 from . import manifest as mf
 from .apply import archive_file, create_request, delete_file, patch_request_file
-from .collection import collection_conventions
-from .diff import _sig_for_diff, _skip_key
+from .collection import collection_conventions, collection_proposals, env_var_names
+from .diff import _sig_for_diff, _skip_key, retarget_convention_diffs
 
 
 def _ep(method: str, path: str) -> str:
@@ -27,11 +27,17 @@ def execute_plan(root: Path, plan: dict, ops: list[dict], reqs: list[dict],
 
     # Vote conventions over the plan's final survivor set — a removed
     # entry flipped to keep rejoins the vote. The plan's serialized
-    # conventions block is a changeset-time snapshot, kept for review.
+    # conventions block is a changeset-time snapshot: inferred values are
+    # re-derived, but proposals keep their reviewed/named vars.
     doomed = {i["file"] for i in plan.get("removed", [])
               if i.get("action", "archive") in ("archive", "delete")}
-    conventions = collection_conventions(
-        [r for r in reqs if r["rel"] not in doomed])
+    survivors = [r for r in reqs if r["rel"] not in doomed]
+    conventions = collection_conventions(survivors)
+    if not conventions["headers"] and not conventions["auth"]:
+        conventions = plan.get("conventions") or \
+            collection_proposals(survivors, env_var_names(root))
+    plan["conventions"] = conventions
+    retarget_convention_diffs(plan)
 
     # --- added endpoints ---
     for item in plan.get("added", []):

@@ -1216,3 +1216,89 @@ def test_print_changeset_handles_nonstring_scalars(capsys):
           "conventions": {"headers": {}, "auth": None}, "changed": []}
     _print_changeset(cs)
     assert "123" in capsys.readouterr().out
+
+
+def _cold_req(hval, auth):
+    return {"file": None, "rel": "r.yml", "name": "r", "method": "get",
+            "url_path": "{{baseUrl}}/x/", "norm": "/x", "path_params": [],
+            "query": {}, "body": {}, "docs": "",
+            "headers": {"x-custom-key": {"name": "X-Custom-Key",
+                                         "value": hval}},
+            "auth": auth}
+
+
+def test_env_var_names(tmp_path):
+    """Env var names are collected across environments/*.yml."""
+    from vegito.collection import env_var_names
+    envs = tmp_path / "environments"
+    envs.mkdir()
+    (envs / "a.yml").write_text(
+        "name: A\nvariables:\n  - name: token\n  - name: org_key\n")
+    assert env_var_names(tmp_path) == {"token", "org_key"}
+    assert env_var_names(tmp_path / "nope") == set()
+
+
+def test_cold_start_proposals(tmp_path):
+    """Cold collections get {{var}} proposals; mature ones stay untouched."""
+    from vegito.collection import collection_proposals
+    prop = collection_proposals(
+        [_cold_req("", {"type": "bearer", "token": ""}),
+         _cold_req("", {"type": "bearer", "token": ""})],
+        {"customKey", "token"})
+    entry = prop["headers"]["x-custom-key"]
+    assert entry["value"] == "{{customKey}}" and entry["proposed"]
+    assert prop["auth"]["config"]["token"] == "{{token}}"
+    assert prop["auth"]["proposed"]
+
+    op = dict(_op_with_header(),
+              headers={"x-custom-key": {"name": "X-Custom-Key"}})
+    reqs = [_cold_req("", None), _cold_req("", None)]
+    cs = build_changeset([op], reqs, None, tmp_path)
+    conv = cs["conventions"]["headers"]["x-custom-key"]
+    assert conv["value"] == "{{custom_key}}" and conv["proposed"]
+    assert any(d["change"] == "convention" for i in cs["changed"]
+               for d in i["diffs"])
+
+    cold_no_root = build_changeset([op], reqs, None)
+    assert not cold_no_root["conventions"]["headers"]
+    warm = build_changeset(
+        [op], [_cold_req("{{v}}", None), _cold_req("{{v}}", None)],
+        None, tmp_path)
+    entry = warm["conventions"]["headers"]["x-custom-key"]
+    assert entry["value"] == "{{v}}" and "proposed" not in entry
+
+
+def test_retarget_convention_diffs():
+    """Renamed/dropped conventions update or remove their diffs."""
+    from vegito.diff import retarget_convention_diffs
+    container = {
+        "conventions": {"headers": {"x-k": {"name": "X-K", "value": "{{a}}",
+                                           "count": 2}},
+                        "auth": {"config": {"type": "bearer",
+                                            "token": "{{t}}"},
+                                 "count": 2}},
+        "changed": [
+            {"diffs": [
+                {"key": "header.X-K", "change": "convention",
+                 "action": "apply", "detail": "d",
+                 "data": {"name": "X-K", "value": "{{a}}"}},
+                {"key": "auth", "change": "convention", "action": "apply",
+                 "detail": "d", "data": {"type": "bearer", "token": "{{t}}"}},
+                {"key": "docs", "change": "modified", "action": "apply",
+                 "detail": "d", "data": "x"}]},
+            {"diffs": [
+                {"key": "header.X-K", "change": "convention",
+                 "action": "apply", "detail": "d",
+                 "data": {"name": "X-K", "value": "{{a}}"}}]}],
+    }
+    conv = container["conventions"]
+    conv["headers"]["x-k"]["value"] = "{{renamed}}"
+    retarget_convention_diffs(container)
+    d = container["changed"][0]["diffs"][0]
+    assert d["data"]["value"] == "{{renamed}}" and "{{renamed}}" in d["detail"]
+
+    del conv["headers"]["x-k"]
+    conv["auth"] = None
+    retarget_convention_diffs(container)
+    assert [d["key"] for d in container["changed"][0]["diffs"]] == ["docs"]
+    assert len(container["changed"]) == 1
