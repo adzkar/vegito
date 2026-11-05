@@ -864,6 +864,37 @@ def test_convention_apply_updates_values(tmp_path):
     assert "auth" not in ex
 
 
+def test_convention_apply_patches_all_examples(tmp_path):
+    """Non-body diffs mirror onto every example block, not just the first."""
+    from vegito.apply import patch_request_file
+    f = tmp_path / "Req.yml"
+    f.write_text(textwrap.dedent("""\
+        info: {name: Req, type: http}
+        http:
+          method: GET
+          url: "{{baseUrl}}/x/"
+          headers:
+            - name: X-Org-Key
+              value: abc
+        examples:
+          - request:
+              url: "{{baseUrl}}/x/"
+              headers: [{name: X-Org-Key, value: abc}]
+            response: {status: 200}
+          - request:
+              url: "{{baseUrl}}/x/"
+              headers: [{name: X-Org-Key, value: abc}]
+            response: {status: 404}
+        """))
+    patch_request_file(f, [
+        {"key": "header.X-Org-Key", "change": "convention",
+         "data": {"name": "X-Org-Key", "value": "{{org}}"}},
+    ])
+    doc = _yaml.load(f.read_text())
+    assert [e["request"]["headers"][0]["value"] for e in doc["examples"]] == \
+        ["{{org}}", "{{org}}"]
+
+
 def test_plan_roundtrips_conventions(coll, tmp_path):
     """Plan files carry the conventions map so apply works standalone."""
     root, _, v2 = coll

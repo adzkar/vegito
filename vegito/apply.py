@@ -216,12 +216,12 @@ def patch_request_file(path: Path, diffs: list[dict]):
                     and not d["key"].endswith("!required")
                     and d["change"] == "added"}
     examples = doc.get("examples")
-    example_req = examples[0].get("request") if isinstance(examples, list) \
-        and examples and isinstance(examples[0], dict) else None
-    example_body_blocks = [ex["request"] for ex in examples or []
-                           if isinstance(ex, dict)
-                           and isinstance(ex.get("request"), dict)
-                           and isinstance(ex["request"].get("body"), dict)]
+    example_reqs = [ex["request"] for ex in
+                    (examples if isinstance(examples, list) else [])
+                    if isinstance(ex, dict)
+                    and isinstance(ex.get("request"), dict)]
+    example_body_blocks = [rb for rb in example_reqs
+                           if isinstance(rb.get("body"), dict)]
     for d in diffs:
         key = d["key"]
         if key.startswith("body."):
@@ -245,8 +245,8 @@ def patch_request_file(path: Path, diffs: list[dict]):
             _patch_req_block(http, key, d)
         elif not key.startswith("response."):
             _patch_req_block(http, key, d)
-            if isinstance(example_req, dict):
-                _patch_req_block(example_req, key, d)
+            for rb in example_reqs:
+                _patch_req_block(rb, key, d)
     path.write_text(_dump(doc))
 
 
