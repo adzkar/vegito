@@ -108,11 +108,12 @@ def _params(operation: dict, path_item: dict, components: dict) -> tuple[list, d
 
 
 def _auth_required(operation: dict, root_security) -> bool:
-    """True when the op requires auth (security present, no anonymous option)."""
+    """True when the op requires auth — an empty ``{}`` alternative in the
+    security list means anonymous access is allowed."""
     security = operation.get("security", root_security)
     if not security:
         return False
-    return any(isinstance(req, dict) and req for req in security)
+    return not any(isinstance(req, dict) and not req for req in security)
 
 
 def parse_operations(doc: dict) -> list[dict]:

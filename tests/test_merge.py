@@ -1092,6 +1092,30 @@ def test_root_create_resolves_symlinked_root(tmp_path):
     assert create_request(link, "", op, None).exists()
 
 
+def test_auth_required_honors_anonymous_alternative(tmp_path):
+    """security: [{jwtAuth: []}, {}] allows anonymous → auth not required."""
+    from vegito.schema import load_schema, parse_operations
+    s = tmp_path / "s.yaml"
+    s.write_text(textwrap.dedent("""\
+        openapi: 3.0.3
+        info: {title: T, version: "1"}
+        paths:
+          /anon/:
+            get:
+              operationId: anon_get
+              security: [{jwtAuth: []}, {}]
+              responses: {'200': {description: ''}}
+          /secure/:
+            get:
+              operationId: secure_get
+              security: [{jwtAuth: []}]
+              responses: {'200': {description: ''}}
+        """))
+    ops = {o["operation_id"]: o for o in parse_operations(load_schema(s))}
+    assert ops["anon_get"]["auth_required"] is False
+    assert ops["secure_get"]["auth_required"] is True
+
+
 def test_parse_operations_coerces_nonstring_operation_id(tmp_path):
     """operationId: 123 parses to '123' — safe_filename/scalar stay safe."""
     from vegito.schema import load_schema, parse_operations
