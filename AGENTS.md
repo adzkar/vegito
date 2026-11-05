@@ -64,7 +64,9 @@ Plan action vocabulary:
   modal `value`, `auth.config` → modal auth dict; each with vote `count`).
   New skeletons inherit them; `change: "convention"` diffs flag matched
   requests that deviate — they emit `action: skip` (opt-in; `apply`
-  rewrites the field to the convention).
+  rewrites the field to the convention). The serialized block is a
+  changeset-time snapshot for review — `apply` re-votes over the plan's
+  final survivor set, so a `removed` entry flipped to `keep` rejoins.
 
 ## Domain primer (opencollection format)
 

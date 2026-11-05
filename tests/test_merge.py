@@ -605,6 +605,35 @@ def test_execute_plan_fallback_keepers_still_vote(coll):
     assert (root / "legacy/old0.yml").exists()
 
 
+def test_execute_plan_revotes_conventions_for_kept(coll):
+    """Plan conventions are a snapshot — kept files rejoin the vote."""
+    root, _, v2 = coll
+    legacy = root / "legacy"
+    legacy.mkdir()
+    for i in range(3):
+        (legacy / f"old{i}.yml").write_text(textwrap.dedent(f"""\
+            info: {{name: Old{i}, type: http}}
+            http:
+              method: GET
+              url: "{{{{baseUrl}}}}/legacy/old{i}/"
+              auth: {{type: basic, username: u, password: p}}
+            """))
+    ops, reqs, cs = _changeset(v2, root)
+    plan = changeset_to_plan(cs, str(v2), root)
+    assert "conventions" in plan  # serialized snapshot stays for review
+    for item in plan["removed"]:
+        if item["file"].startswith("legacy/"):
+            item["action"] = "keep"
+    for item in plan["added"]:
+        item["folder"] = item["folder"] or "demo/Widgets"
+    manifest = load_manifest(root)
+    report = execute_plan(root, plan, ops, reqs, manifest)
+    assert not report["errors"], report["errors"]
+    doc = _yaml.load(
+        (root / "demo/Widgets/demo_widgets_create.yml").read_text())
+    assert doc["http"]["auth"]["type"] == "basic"
+
+
 def test_conventions_modal_min2():
     """Modal header value/auth config wins only with >=2 uses."""
     from vegito.collection import collection_conventions
