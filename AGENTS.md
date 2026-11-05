@@ -67,6 +67,8 @@ Plan action vocabulary:
   rewrites the field to the convention). The serialized block is a
   changeset-time snapshot for review — `apply` re-votes over the plan's
   final survivor set, so a `removed` entry flipped to `keep` rejoins.
+  Entries marked `proposed: true` are cold-start suggestions, not votes —
+  `count` is then the number of requests carrying the field.
 
 ## Domain primer (opencollection format)
 
@@ -125,6 +127,12 @@ Conventions observed in the target collection (replicate in `skeleton.py`):
   signature covers the convention value, so a modal flip resurfaces it).
   A missing field or `auth: inherit` is never flagged (can't tell
   deliberate inheritance).
+- **Cold-start proposals** (`collection_proposals`): when inference finds
+  *nothing* and `build_changeset` gets a `root`, recurring header names /
+  bearer auth yield `proposed: true` env-var suggestions — the wizard asks
+  per var (plan files get derived defaults). `retarget_convention_diffs`
+  re-syncs diffs after renames or plan `conventions:` edits — call it
+  before applying, never write to `environments/*.yml`.
 - `data: |-` literal blocks: no trailing newline in `LiteralScalarString`,
   or ruamel emits `data: |` instead.
 - **Hand-emitted scalars** (`skeleton.py` `_yaml_scalar`) must round-trip as
