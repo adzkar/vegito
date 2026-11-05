@@ -1385,6 +1385,34 @@ def test_cold_start_proposals(tmp_path):
     assert entry["value"] == "{{v}}" and "proposed" not in entry
 
 
+def test_proposal_missing_header_not_double_flagged(tmp_path):
+    """Under proposals, an absent-but-declared header gets only the
+    'added' diff — a convention diff on top would flag it twice."""
+    def req(norm, headers):
+        r = _cold_req("", None)
+        r["norm"], r["headers"] = norm, headers
+        return r
+    opA = dict(_op_with_header(), headers={"x-k": {"name": "X-K"}})
+    opB = dict(opA, operation_id="b", path="/b/", norm="/b")
+    opC = dict(opA, operation_id="c", path="/c/", norm="/c")
+    reqs = [req("/x", {"x-k": {"name": "X-K", "value": ""}}),
+            req("/b", {"x-k": {"name": "X-K", "value": ""}}),
+            req("/c", {})]
+    cs = build_changeset([opA, opB, opC], reqs, None, tmp_path)
+    by_norm = {i["request"]["norm"]: i for i in cs["changed"]}
+    # present-but-blank → convention diff only
+    kinds = [(d["key"], d["change"]) for d in by_norm["/x"]["diffs"]]
+    assert ("header.X-K", "convention") in kinds
+    assert ("header.X-K", "added") not in kinds
+    # absent → added diff only (with the proposed value as a hint)
+    kinds = [(d["key"], d["change"]) for d in by_norm["/c"]["diffs"]]
+    assert ("header.X-K", "convention") not in kinds
+    added = next(d for d in by_norm["/c"]["diffs"]
+                 if d["key"] == "header.X-K")
+    assert added["change"] == "added"
+    assert added["data"]["convention_value"] == "{{k}}"
+
+
 def test_retarget_convention_diffs():
     """Renamed/dropped conventions update or remove their diffs."""
     from vegito.diff import retarget_convention_diffs

@@ -77,10 +77,12 @@ def _convention_diffs(op: dict, req: dict,
         entry = req["headers"].get(lname)
         value = str(entry.get("value") or "") \
             if isinstance(entry, dict) else ""
-        # Blank stays unflagged for observed conventions (can't tell
-        # deliberate empty) — but proposals exist to fill gaps, so they
-        # flag blanks too.
-        if value == c["value"] or (not value and not c.get("proposed")):
+        # A missing header is the 'added' diff's job — don't flag it
+        # twice. Blank stays unflagged for observed conventions (can't
+        # tell deliberate empty) — proposals flag blanks too (filling
+        # gaps is their purpose).
+        if entry is None or value == c["value"] \
+                or (not value and not c.get("proposed")):
             continue
         diffs.append(_fdiff(
             f"header.{c['name']}", "convention", _header_conv_detail(c),
