@@ -1003,6 +1003,49 @@ def test_removed_diffs_skip_missing_sections(tmp_path):
     assert not doc["http"]["headers"] and not doc["http"]["params"]
 
 
+def test_patch_tolerates_null_and_nonlist_sections(tmp_path):
+    """Bare `headers:`/`params:` stubs (null) or non-list shapes can't
+    crash patching — including the mirrored example blocks."""
+    from vegito.apply import patch_request_file
+    f = tmp_path / "Req.yml"
+    f.write_text(textwrap.dedent("""\
+        info: {name: Req, type: http}
+        http:
+          method: GET
+          url: "{{baseUrl}}/x/"
+          headers:
+        examples:
+          - request:
+              url: "{{baseUrl}}/x/"
+              headers:
+              params:
+            response: {status: 200}
+        """))
+    patch_request_file(f, [
+        {"key": "header.X-Org", "change": "convention",
+         "data": {"name": "X-Org", "value": "{{org}}"}},
+        {"key": "param.query.page", "change": "added", "data": {}},
+    ])
+    doc = _yaml.load(f.read_text())
+    ex = doc["examples"][0]["request"]
+    assert ex["headers"][0]["value"] == "{{org}}"
+    assert ex["params"][0]["name"] == "page"
+    assert doc["http"]["headers"][0]["value"] == "{{org}}"
+
+    # a non-list shape is treated as absent — a removal leaves it alone
+    g = tmp_path / "R2.yml"
+    g.write_text(textwrap.dedent("""\
+        info: {name: R2, type: http}
+        http:
+          method: GET
+          url: "{{baseUrl}}/x/"
+          headers: oops
+        """))
+    patch_request_file(g, [
+        {"key": "header.X-Old", "change": "removed", "data": None}])
+    assert _yaml.load(g.read_text())["http"]["headers"] == "oops"
+
+
 def test_plan_roundtrips_conventions(coll, tmp_path):
     """Plan files carry the conventions map so apply works standalone."""
     root, _, v2 = coll

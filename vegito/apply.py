@@ -92,8 +92,18 @@ def _del_json_path(doc, dotted: str):
 
 # ---------- request-block patching ----------
 
+def _list_slot(block: dict, key: str) -> list:
+    """The list at ``block[key]`` — a missing, null, or non-list value
+    (e.g. a bare ``headers:`` YAML stub) is replaced by a fresh list so
+    appends/iteration never crash."""
+    value = block.get(key)
+    if not isinstance(value, list):
+        value = block[key] = []
+    return value
+
+
 def _params(block) -> list:
-    return block.setdefault("params", [])
+    return _list_slot(block, "params")
 
 
 def _patch_req_block(block: dict, key: str, d: dict):
@@ -152,7 +162,8 @@ def _patch_req_block(block: dict, key: str, d: dict):
             entry["disabled"] = True
             _params(block).append(entry)
         else:
-            cur = block.get("params") or []
+            cur = block.get("params")
+            cur = cur if isinstance(cur, list) else []
             new = [p for p in cur
                    if not (p.get("type") == "query"
                            and str(p.get("name", "")).lower() == name.lower())]
@@ -171,10 +182,10 @@ def _patch_req_block(block: dict, key: str, d: dict):
                      "value": info.get("convention_value", "")}
             if info.get("description"):
                 entry["description"] = info["description"]
-            block.setdefault("headers", []).append(entry)
+            _list_slot(block, "headers").append(entry)
         elif d["change"] == "convention":
             info = d["data"] or {}
-            headers = block.setdefault("headers", [])
+            headers = _list_slot(block, "headers")
             target = next((h for h in headers
                            if str(h.get("name", "")).lower() == name.lower()),
                           None)
@@ -184,7 +195,8 @@ def _patch_req_block(block: dict, key: str, d: dict):
             else:
                 target["value"] = info.get("value", "")
         else:
-            cur = block.get("headers") or []
+            cur = block.get("headers")
+            cur = cur if isinstance(cur, list) else []
             new = [h for h in cur
                    if str(h.get("name", "")).lower() != name.lower()]
             if len(new) != len(cur):
@@ -206,7 +218,9 @@ def _patch_body(block: dict, field: str, add: bool, applied_keys: set):
         _set_json_path(doc, field, applied_keys)
     else:
         _del_json_path(doc, field)
-    new_body = block.setdefault("body", {})
+    new_body = block.get("body")
+    if not isinstance(new_body, dict):
+        new_body = block["body"] = {}
     new_body["type"] = "json"
     new_body["data"] = LiteralScalarString(json.dumps(doc, indent=2))
 
@@ -214,7 +228,7 @@ def _patch_body(block: dict, field: str, add: bool, applied_keys: set):
 def patch_request_file(path: Path, diffs: list[dict]):
     """Apply the selected diffs to a request file in place."""
     doc = _load(path)
-    if not isinstance(doc, dict) or "http" not in doc:
+    if not isinstance(doc, dict) or not isinstance(doc.get("http"), dict):
         return
     http = doc["http"]
     applied_body = {d["key"][len("body."):]
