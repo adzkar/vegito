@@ -931,6 +931,41 @@ def test_execute_plan_regenerate_honors_declined_proposals(tmp_path):
     assert "{{org_key}}" not in (root / "f/y.yml").read_text()
 
 
+def test_execute_plan_skip_records_reviewed_convention_sig(tmp_path):
+    """A serialized action:skip records the sig of the reviewed value —
+    a modal flip between plan and apply resurfaces, not re-signs."""
+    from vegito.common import fingerprint
+    root = tmp_path / "coll"
+    root.mkdir()
+    op = _op_with_header()
+    reqs = _blank_reqs()
+    for r in reqs:
+        r["headers"]["x-org-key"]["value"] = "{{new}}"
+    reqs.append(_cold_req("", None))
+    reqs[2]["headers"] = {"x-org-key": {"name": "X-Org-Key", "value": "abc"}}
+    reviewed = {"name": "X-Org-Key", "value": "{{org}}"}
+    plan = {"added": [], "removed": [], "moved": [],
+            "changed": [{"method": "get", "path": "/x/", "file": "r.yml",
+                         "state_key": "get /x",
+                         "diffs": [{"key": "header.X-Org-Key",
+                                    "change": "convention",
+                                    "action": "skip", "detail": "…",
+                                    "data": reviewed}]}],
+            "conventions": {"headers": {"x-org-key":
+                                        {"name": "X-Org-Key",
+                                         "value": "{{org}}", "count": 2}},
+                            "auth": None}}
+    manifest = load_manifest(root)
+    report = execute_plan(root, plan, [op], reqs, manifest)
+    assert not report["errors"], report["errors"]
+    # the diff re-synced to the re-vote, but the sig covers {{org}}
+    d = plan["changed"][0]["diffs"][0]
+    assert d["data"]["value"] == "{{new}}"
+    skipped = manifest["endpoints"]["get /x"]["skipped"]
+    assert skipped["convention\x1fheader.X-Org-Key"] == fingerprint(
+        {"k": "header.X-Org-Key", "v": reviewed, "c": "convention"})
+
+
 def test_conventions_modal_min2():
     """Modal header value/auth config wins only with >=2 uses."""
     from vegito.collection import collection_conventions

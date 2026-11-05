@@ -1,6 +1,7 @@
 """Execute a reviewed plan: patch files, create skeletons, archive, report."""
 from __future__ import annotations
 
+from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -102,6 +103,14 @@ def execute_plan(root: Path, plan: dict, ops: list[dict], reqs: list[dict],
             sources.append("regenerated proposals")
     conv_source = " + ".join(sources) or "the survivor re-vote"
     plan["conventions"] = conventions
+    # Snapshot the reviewed data of skip-decision diffs before retarget
+    # re-syncs them — the recorded sig must cover the value the user saw,
+    # or a post-plan modal flip gets silently re-signed and never
+    # resurfaces.
+    reviewed = {id(d): deepcopy(d.get("data"))
+                for item in plan.get("changed", []) if isinstance(item, dict)
+                for d in (item.get("diffs") or [])
+                if isinstance(d, dict) and d.get("action") == "skip"}
     retarget_convention_diffs(plan)
     if planned_conv is not None and planned_conv != conventions:
         report["notes"].append(
@@ -192,7 +201,9 @@ def execute_plan(root: Path, plan: dict, ops: list[dict], reqs: list[dict],
                 skipped_sigs = dict(prev.get("skipped") or {})
                 for d in item["diffs"]:
                     if d.get("action") == "skip":
-                        skipped_sigs[_skip_key(d)] = _sig_for_diff(d, op)
+                        seen = reviewed.get(id(d), d.get("data"))
+                        skipped_sigs[_skip_key(d)] = _sig_for_diff(
+                            dict(d, data=seen), op)
                     elif d.get("action") == "apply":
                         skipped_sigs.pop(_skip_key(d), None)
                         skipped_sigs.pop(d["key"], None)
