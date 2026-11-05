@@ -159,8 +159,12 @@ def _review(changeset: dict, dirs: list[str]) -> bool:
                 for n, d in enumerate(item["diffs"]):
                     if d["change"] == "note":
                         d["action"] = "note"
+                    elif n in picked:
+                        d["action"] = "apply"
+                        # re-applied by choice — no longer a stored skip
+                        d.pop("skipped", None)
                     else:
-                        d["action"] = "apply" if n in picked else "skip"
+                        d["action"] = "skip"
     return True
 
 

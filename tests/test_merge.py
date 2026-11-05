@@ -783,6 +783,35 @@ def test_convention_diffs_unchecked_in_review(monkeypatch):
     assert diffs[0]["action"] == "skip" and diffs[1]["action"] == "apply"
 
 
+def test_rechecked_skip_serializes_as_apply(monkeypatch, tmp_path):
+    """Re-checking a previously skipped diff clears it → plan says apply."""
+    from vegito import wizard
+
+    class _Ask:
+        def __init__(self, result):
+            self.result = result
+
+        def ask(self):
+            return self.result
+
+    changeset = {"added": [], "removed": [], "moved": [],
+                 "changed": [{"request": {"rel": "R.yml", "name": "R"},
+                              "operation": {"method": "get", "path": "/x/",
+                                            "operation_id": "x_op"},
+                              "state_key": "get /x",
+                              "diffs": [
+                                  {"key": "param.query.a", "change": "added",
+                                   "detail": "a added", "action": "apply",
+                                   "skipped": True, "data": {}}]}]}
+    monkeypatch.setattr(wizard.questionary, "checkbox",
+                        lambda *a, **k: _Ask([0]))  # re-check it
+    assert wizard._review(changeset, []) is True
+    d = changeset["changed"][0]["diffs"][0]
+    assert d["action"] == "apply" and "skipped" not in d
+    plan = changeset_to_plan(changeset, "s.yaml", tmp_path)
+    assert plan["changed"][0]["diffs"][0]["action"] == "apply"
+
+
 def test_skeleton_uses_conventions():
     """Generated file gets convention header value and auth config."""
     from vegito.skeleton import render_request_file
