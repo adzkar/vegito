@@ -115,6 +115,10 @@ Conventions observed in the target collection (replicate in `skeleton.py`):
 - **Matching heuristic**: `norm_path` treats `{x}`, `:x`, all-numeric, and
   UUID URL segments as param placeholders. Intentional — users paste real ids
   into URLs (`groups/9/`). Diff restores `:param` and keeps their value.
+- **Moved endpoints**: a `moved` entry is excluded from `matched`, so it
+  gets no field-level diffs (headers/params/body/conventions) in that
+  changeset — they surface on the *next* `diff`/`apply` once the move
+  lands. Deliberate layering, not a gap.
 - **`param.path.N` apply** uses `param_file_index` (difflib alignment) — the
   request URL and the example's URL can have *different* segment layouts.
 - **Manifest** (`.merger/state.json`): per-endpoint schema snapshot (`body`,
