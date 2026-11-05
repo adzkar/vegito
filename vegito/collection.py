@@ -141,6 +141,18 @@ def collection_conventions(reqs: list[dict]) -> dict:
     return {"headers": headers, "auth": auth}
 
 
+def format_conventions(conventions: dict | None) -> str:
+    """One-line conventions summary, e.g. ``X-Key → {{org}} (2×) · auth →
+    bearer (3×)`` — for the wizard and `diff`/`plan` output."""
+    conv = conventions or {}
+    bits = [f"{c['name']} → {c['value']} ({c['count']}×)"
+            for c in (conv.get("headers") or {}).values()]
+    if conv.get("auth"):
+        bits.append(f"auth → {conv['auth']['config'].get('type')} "
+                    f"({conv['auth']['count']}×)")
+    return " · ".join(bits)
+
+
 def list_dirs(root: str | Path) -> list[str]:
     """All folder paths in the collection, relative to root (sorted)."""
     root = Path(root)

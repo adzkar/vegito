@@ -9,7 +9,12 @@ from rich.console import Console
 from rich.panel import Panel
 
 from . import manifest as mf
-from .collection import find_collection_root, list_dirs, scan_collection
+from .collection import (
+    find_collection_root,
+    format_conventions,
+    list_dirs,
+    scan_collection,
+)
 from .diff import build_changeset
 from .planfile import changeset_to_plan
 from .runner import execute_plan, render_report, write_report
@@ -193,14 +198,9 @@ def run(schema: str | None = None, collection: str | None = None):
                   f"{len(reqs)} requests in collection\n"
                   f"{_summary_line(changeset)}")
 
-    conv = changeset.get("conventions") or {}
-    bits = [f"{c['name']} → {c['value']} ({c['count']}×)"
-            for c in (conv.get("headers") or {}).values()]
-    if conv.get("auth"):
-        bits.append(f"auth → {conv['auth']['config'].get('type')} "
-                    f"({conv['auth']['count']}×)")
-    if bits:
-        console.print(f"[dim]conventions: {' · '.join(bits)}[/]")
+    conv_line = format_conventions(changeset.get("conventions"))
+    if conv_line:
+        console.print(f"[dim]conventions: {conv_line}[/]")
 
     if not any([changeset["added"], changeset["removed"],
                 changeset["changed"], changeset["moved"]]):

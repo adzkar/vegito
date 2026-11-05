@@ -35,6 +35,10 @@ def _cmd_diff(args):
 
 
 def _print_changeset(cs: dict):
+    from .collection import format_conventions
+    conv_line = format_conventions(cs.get("conventions"))
+    if conv_line:
+        console.print(f"[dim]conventions: {conv_line}[/]")
     for item in cs["added"]:
         op = item["operation"]
         console.print(f"[green]+ new[/]      {op['method'].upper():6} "
