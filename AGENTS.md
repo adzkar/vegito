@@ -67,8 +67,10 @@ Plan action vocabulary:
   rewrites the field to the convention). The serialized block is a
   changeset-time snapshot for review — `apply` re-votes over the plan's
   final survivor set, so a `removed` entry flipped to `keep` rejoins.
-  Entries marked `proposed: true` are cold-start suggestions, not votes —
-  `count` is then the number of requests carrying the field.
+  Only the block's `proposed` entries are honored verbatim — inferred
+  entries are always re-derived, so a stale snapshot can't revive a dead
+  convention. Entries marked `proposed: true` are cold-start suggestions,
+  not votes — `count` is then the number of requests carrying the field.
 
 ## Domain primer (opencollection format)
 
@@ -138,7 +140,9 @@ Conventions observed in the target collection (replicate in `skeleton.py`):
   caches a convention copy must re-sync there: `change: "convention"` diffs
   (`data.value`/`config` + detail text) and `header.*` "added" diffs
   (`data.convention_value` + the ` (convention: …)` suffix — apply writes
-  both verbatim).
+  both verbatim). Its `skipped_count` update decrements by what was
+  dropped/resurfaced — never recomputed over `changed`, which excludes
+  fully-hidden items whose skips still count.
 - `data: |-` literal blocks: no trailing newline in `LiteralScalarString`,
   or ruamel emits `data: |` instead.
 - **Hand-emitted scalars** (`skeleton.py` `_yaml_scalar`) must round-trip as
