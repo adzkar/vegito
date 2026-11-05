@@ -143,7 +143,8 @@ def _review(changeset: dict, dirs: list[str]) -> bool:
                     console.print(f"    [dim]note: {d['detail']}[/]")
             if actionable:
                 choices = [Choice(d["detail"], value=n,
-                                  checked=not d.get("skipped"))
+                                  checked=d["action"] == "apply"
+                                  and not d.get("skipped"))
                            for n, d in enumerate(item["diffs"])
                            if d["change"] != "note"]
                 picked = questionary.checkbox(

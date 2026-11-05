@@ -585,6 +585,103 @@ def test_convention_outlier_diff():
     assert not [d for d in ds.values() if d["change"] == "convention"]
 
 
+def _deviating_collection(root):
+    """Make List.yml deviate from a 2-vote bearer convention. Returns its path."""
+    (root / "demo/Widgets/Filled2.yml").write_text(textwrap.dedent("""\
+        info: {name: Filled two, type: http}
+        http:
+          method: GET
+          url: "{{baseUrl}}/demo/widgets/9/"
+          auth: {type: bearer, token: "{{token}}"}
+        """))
+    list_yml = root / "demo/Widgets/List.yml"
+    list_yml.write_text(textwrap.dedent("""\
+        info: {name: List widgets, type: http}
+        http:
+          method: GET
+          url: "{{baseUrl}}/demo/widgets/"
+          auth: {type: basic, username: u}
+        """))
+    return list_yml
+
+
+def test_convention_diffs_are_opt_in(coll):
+    """Convention diffs default to skip — an unedited merge leaves the value."""
+    root, _, v2 = coll
+    list_yml = _deviating_collection(root)
+    ops, reqs, cs = _changeset(v2, root)
+    conv_diffs = [d for i in cs["changed"] for d in i["diffs"]
+                  if d["change"] == "convention"]
+    assert conv_diffs and all(d["action"] == "skip" for d in conv_diffs)
+
+    report = _apply_all(v2, root, ops, reqs, cs)
+    assert not report["errors"], report["errors"]
+    doc = _yaml.load(list_yml.read_text())
+    assert doc["http"]["auth"]["type"] == "basic"  # deliberately set — kept
+    # …and the default skip is remembered rather than re-flagged every run
+    _, _, cs2 = _changeset(v2, root)
+    assert not [d for i in cs2["changed"] for d in i["diffs"]
+                if d["change"] == "convention" and not d.get("skipped")]
+
+
+def test_skipped_convention_resurfaces_on_flip(coll):
+    """A convention skip expires when the modal value/config changes."""
+    root, _, v2 = coll
+    _deviating_collection(root)
+    ops, reqs, cs = _changeset(v2, root)
+    _apply_all(v2, root, ops, reqs, cs)
+
+    for name in ("Filled.yml", "Filled2.yml"):
+        (root / "demo/Widgets" / name).write_text(textwrap.dedent("""\
+            info: {name: Filled, type: http}
+            http:
+              method: GET
+              url: "{{baseUrl}}/demo/widgets/9/"
+              auth: {type: bearer, token: "{{tok2}}"}
+            """))
+    _, _, cs2 = _changeset(v2, root)
+    res = [d for i in cs2["changed"] for d in i["diffs"]
+           if d["change"] == "convention" and d["key"] == "auth"
+           and not d.get("skipped")]
+    assert res and res[0]["data"]["token"] == "{{tok2}}"
+
+
+def test_convention_diffs_unchecked_in_review(monkeypatch):
+    """The wizard leaves convention diffs unchecked — opt-in there too."""
+    from vegito import wizard
+
+    class _Ask:
+        def __init__(self, result):
+            self.result = result
+
+        def ask(self):
+            return self.result
+
+    changeset = {"added": [], "removed": [], "moved": [],
+                 "changed": [{"request": {"rel": "R.yml", "name": "R"},
+                              "operation": {"method": "get", "path": "/x/"},
+                              "state_key": "get /x",
+                              "diffs": [
+                                  {"key": "auth", "change": "convention",
+                                   "detail": "auth differs", "action": "skip",
+                                   "data": {"type": "bearer"}},
+                                  {"key": "param.query.q", "change": "added",
+                                   "detail": "q added", "action": "apply",
+                                   "data": {}}]}]}
+    seen = {}
+
+    def fake_checkbox(_msg, choices=None):
+        seen["choices"] = choices
+        return _Ask([1])
+
+    monkeypatch.setattr(wizard.questionary, "checkbox", fake_checkbox)
+    assert wizard._review(changeset, []) is True
+    assert seen["choices"][0].checked is False
+    assert seen["choices"][1].checked is True
+    diffs = changeset["changed"][0]["diffs"]
+    assert diffs[0]["action"] == "skip" and diffs[1]["action"] == "apply"
+
+
 def test_skeleton_uses_conventions():
     """Generated file gets convention header value and auth config."""
     from vegito.skeleton import render_request_file

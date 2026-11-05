@@ -6,8 +6,11 @@ from .common import _PARAM_RE, fingerprint, path_segments
 
 
 def _fdiff(key: str, change: str, detail: str, data=None) -> dict:
+    # Convention diffs are opt-in — the schema doesn't mandate them, so they
+    # start skipped rather than rewriting a deliberately-set field.
+    action = {"note": "note", "convention": "skip"}.get(change, "apply")
     return {"key": key, "change": change, "detail": detail,
-            "action": "apply" if change != "note" else "note", "data": data}
+            "action": action, "data": data}
 
 
 def _response_diffs(op: dict, prev_responses: dict | None) -> list[dict]:
@@ -180,6 +183,10 @@ def diff_endpoint(op: dict, req: dict, prev: dict | None = None,
 def _sig_for_diff(d: dict, op: dict) -> str:
     """Signature of the schema-side state a diff refers to (for skip memory)."""
     key, op_key = d["key"], None
+    if d["change"] == "convention":
+        # The proposed convention value is the state a skip refers to — a
+        # modal flip changes the signature and resurfaces the diff.
+        return fingerprint({"k": key, "v": d.get("data"), "c": d["change"]})
     for prefix, table in (("param.query.", op["query"]),
                           ("header.", {k: v for k, v in op["headers"].items()}),
                           ("body.", op["body"])):
