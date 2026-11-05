@@ -155,7 +155,7 @@ def render_request_file(op: dict, seq: int,
             v = cfg[k]
             http_lines.append(_yaml_scalar(k, v, "    ")
                               if isinstance(v, str)
-                              else f"    {k}: {json.dumps(v)}")
+                              else f"    {k}: {json.dumps(v, default=str)}")
     parts.append("\n".join(http_lines))
 
     parts.append(_SETTINGS)
