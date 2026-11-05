@@ -34,8 +34,30 @@ def execute_plan(root: Path, plan: dict, ops: list[dict], reqs: list[dict],
     survivors = [r for r in reqs if r["rel"] not in doomed]
     conventions = collection_conventions(survivors)
     if not conventions["headers"] and not conventions["auth"]:
-        conventions = plan.get("conventions") or \
-            collection_proposals(survivors, env_var_names(root))
+        # Only the block's proposed entries are honored — their named vars
+        # can't be re-derived. Inferred entries are a stale snapshot whose
+        # voters may have left the survivor set.
+        block = plan.get("conventions") or {}
+        proposed = {
+            "headers": {k: c for k, c in (block.get("headers") or {}).items()
+                        if c.get("proposed")},
+            "auth": block.get("auth")
+            if (block.get("auth") or {}).get("proposed") else None,
+        }
+        if proposed["headers"] or proposed["auth"]:
+            conventions = proposed
+        else:
+            # Same 'declared' gate build_changeset uses — a header no
+            # surviving or added op declares can't consume a proposal.
+            declared = {
+                lname for r in survivors
+                for lname in (op_by_key.get((r["method"], r["norm"]))
+                              or {}).get("headers", {})}
+            declared |= {
+                lname for a in plan.get("added", [])
+                for lname in (a.get("operation") or {}).get("headers", {})}
+            conventions = collection_proposals(
+                survivors, env_var_names(root), declared)
     plan["conventions"] = conventions
     retarget_convention_diffs(plan)
 

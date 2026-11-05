@@ -634,6 +634,73 @@ def test_execute_plan_revotes_conventions_for_kept(coll):
     assert doc["http"]["auth"]["type"] == "basic"
 
 
+def _blank_reqs():
+    reqs = [_cold_req("", {"type": "bearer", "token": ""}),
+            _cold_req("", {"type": "bearer", "token": ""})]
+    for r in reqs:
+        r["headers"] = {"x-org-key": {"name": "X-Org-Key", "value": ""},
+                        "content-type": {"name": "Content-Type",
+                                         "value": ""}}
+    return reqs
+
+
+def test_execute_plan_filters_stale_inferred_block(tmp_path):
+    """The serialized conventions block is honored only for proposed
+    entries — inferred ones are a stale snapshot; regenerated proposals
+    keep the 'declared' gate."""
+    root = tmp_path / "coll"
+    root.mkdir()
+    matched = _op_with_header()   # get /x, declares x-org-key
+    added = dict(_op_with_header(), operation_id="y", path="/y/",
+                 norm="/y")
+    reqs = _blank_reqs()
+    plan = {"added": [{"operation": added, "action": "add", "folder": "f",
+                       "name": "y"}],
+            "removed": [], "moved": [], "changed": [],
+            "conventions": {
+                "headers": {"x-org-key": {"name": "X-Org-Key",
+                                          "value": "{{stale}}",
+                                          "count": 9}},
+                "auth": {"config": {"type": "bearer", "token": "{{dead}}"},
+                         "count": 9}}}
+    report = execute_plan(root, plan, [matched, added], reqs,
+                          load_manifest(root))
+    assert not report["errors"], report["errors"]
+    conv = plan["conventions"]
+    # {{stale}} was inferred (no 'proposed') — filtered, then regenerated
+    assert conv["headers"]["x-org-key"]["value"] == "{{org_key}}"
+    # content-type recurs on the files but no op declares it
+    assert "content-type" not in conv["headers"]
+    text = (root / "f/y.yml").read_text()
+    assert "{{org_key}}" in text and "{{token}}" in text
+    assert "{{stale}}" not in text and "{{dead}}" not in text
+
+
+def test_execute_plan_honors_proposed_block(tmp_path):
+    """Proposed block entries are the source of truth — the user-named
+    vars can't be re-derived and must survive apply."""
+    root = tmp_path / "coll"
+    root.mkdir()
+    matched = _op_with_header()
+    added = dict(_op_with_header(), operation_id="y", path="/y/",
+                 norm="/y")
+    plan = {"added": [{"operation": added, "action": "add", "folder": "f",
+                       "name": "y"}],
+            "removed": [], "moved": [], "changed": [],
+            "conventions": {
+                "headers": {"x-org-key": {"name": "X-Org-Key",
+                                          "value": "{{named}}",
+                                          "count": 2, "proposed": True}},
+                "auth": {"config": {"type": "bearer",
+                                    "token": "{{mytok}}"},
+                         "count": 2, "proposed": True}}}
+    report = execute_plan(root, plan, [matched, added], _blank_reqs(),
+                          load_manifest(root))
+    assert not report["errors"], report["errors"]
+    text = (root / "f/y.yml").read_text()
+    assert "{{named}}" in text and "{{mytok}}" in text
+
+
 def test_conventions_modal_min2():
     """Modal header value/auth config wins only with >=2 uses."""
     from vegito.collection import collection_conventions
