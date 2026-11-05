@@ -620,3 +620,17 @@ def test_plan_roundtrips_conventions(coll, tmp_path):
     save_plan(changeset_to_plan(cs, str(v2), root), out)
     loaded = load_plan(out)
     assert loaded["conventions"]["auth"]["config"]["token"] == "{{token}}"
+
+
+def test_root_create_resolves_symlinked_root(tmp_path):
+    """Root-level create works when the collection path is unresolved."""
+    from vegito.apply import create_request
+    real = tmp_path / "coll"
+    real.mkdir()
+    link = tmp_path / "link"
+    link.symlink_to(real)
+    op = {"operation_id": "x", "method": "get", "path": "/x/", "norm": "/x",
+          "path_params": [], "query": {}, "headers": {}, "body": {},
+          "auth_required": False, "responses": {}, "tags": [],
+          "description": ""}
+    assert create_request(link, "", op, None).exists()

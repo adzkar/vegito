@@ -18,7 +18,7 @@ def _ep(method: str, path: str) -> str:
 def execute_plan(root: Path, plan: dict, ops: list[dict], reqs: list[dict],
                  manifest: dict) -> dict:
     """Apply the plan. Returns a report dict; updates manifest in memory."""
-    root = Path(root)
+    root = Path(root).resolve()
     op_by_key = {(o["method"], o["norm"]): o for o in ops}
     report = {"applied": [], "skipped": [], "notes": [], "created": [],
               "archived": [], "deleted": [], "moved": [], "errors": []}

@@ -255,7 +255,7 @@ def patch_request_file(path: Path, diffs: list[dict]):
 def create_request(root: Path, folder: str, op: dict, name: str | None,
                    conventions: dict | None = None) -> Path:
     name = (name or "").strip() or None
-    target_dir = (root / folder).resolve() if folder else root
+    target_dir = (root / folder).resolve() if folder else root.resolve()
     if not str(target_dir).startswith(str(root.resolve()) + "/") \
             and target_dir != root.resolve():
         raise ValueError(f"folder escapes collection root: {folder!r}")
