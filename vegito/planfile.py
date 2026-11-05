@@ -66,7 +66,9 @@ def changeset_to_plan(changeset: dict, schema_path: str, root: Path) -> dict:
 
 
 def save_plan(plan: dict, path: Path):
-    Path(path).write_text(_yaml_to_text(plan))
+    header = ("# conventions is a changeset-time snapshot for review —\n"
+              "# `vegito apply` re-votes it over the plan's final survivors.\n")
+    Path(path).write_text(header + _yaml_to_text(plan))
 
 
 def _yaml_to_text(data) -> str:

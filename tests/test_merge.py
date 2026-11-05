@@ -1056,6 +1056,18 @@ def test_plan_roundtrips_conventions(coll, tmp_path):
     assert loaded["conventions"]["auth"]["config"]["token"] == "{{token}}"
 
 
+def test_plan_marks_conventions_as_snapshot(coll, tmp_path):
+    """The saved plan notes conventions are a review snapshot, re-voted."""
+    root, _, v2 = coll
+    _, _, cs = _changeset(v2, root)
+    out = tmp_path / "p.yml"
+    save_plan(changeset_to_plan(cs, str(v2), root), out)
+    assert out.read_text().startswith(
+        "# conventions is a changeset-time snapshot")
+    assert load_plan(out)["conventions"]["auth"]["config"]["token"] == \
+        "{{token}}"
+
+
 def test_plan_keeps_skipped_diffs_skipped(coll):
     """A previously skipped diff serializes as skip, not back to apply."""
     root, _, v2 = coll
