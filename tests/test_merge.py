@@ -1379,6 +1379,35 @@ def test_retarget_recounts_skipped_diffs():
     assert container["skipped_count"] == 1
 
 
+def test_retarget_resurfaces_renamed_convention_skip():
+    """A skipped convention diff resurfaces when its value is rewritten —
+    the skip signature fingerprinted the old data."""
+    from vegito.diff import retarget_convention_diffs
+    container = {
+        "skipped_count": 3,
+        "conventions": {"headers": {"x-k": {"name": "X-K", "value": "{{b}}"},
+                                    "y": {"name": "Y", "value": "{{c}}"}},
+                        "auth": {"config": {"type": "bearer",
+                                            "token": "{{t2}}"}}},
+        "changed": [{"diffs": [
+            {"key": "header.X-K", "change": "convention", "action": "skip",
+             "skipped": True, "detail": "d",
+             "data": {"name": "X-K", "value": "{{a}}"}},
+            {"key": "header.Y", "change": "convention", "action": "skip",
+             "skipped": True, "detail": "d",
+             "data": {"name": "Y", "value": "{{c}}"}},
+            {"key": "auth", "change": "convention", "action": "skip",
+             "skipped": True, "detail": "d",
+             "data": {"type": "bearer", "token": "{{t}}"}}]}],
+    }
+    retarget_convention_diffs(container)
+    renamed, same, renamed_auth = container["changed"][0]["diffs"]
+    assert "skipped" not in renamed      # {{a}} → {{b}}: resurfaces
+    assert same["skipped"]               # unchanged: stays hidden
+    assert "skipped" not in renamed_auth  # {{t}} → {{t2}}: resurfaces
+    assert container["skipped_count"] == 1
+
+
 def test_var_ref_normalizes_and_validates():
     """Proposal answers wrap to {{var}}; malformed input is rejected."""
     from vegito.wizard import _var_ref

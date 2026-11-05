@@ -97,6 +97,9 @@ def retarget_convention_diffs(container: dict) -> None:
     dropped, and emptied ``changed`` items are pruned. ``added`` header
     diffs carry the convention as ``data.convention_value`` — it is
     re-synced (or dropped) the same way, since apply writes it verbatim.
+    A rewritten convention value also drops the diff's ``skipped`` flag:
+    the skip signature fingerprinted the old value, so a renamed
+    convention must resurface rather than stay hidden.
     """
     conv = container.get("conventions") or {}
     headers = conv.get("headers") or {}
@@ -126,12 +129,17 @@ def retarget_convention_diffs(container: dict) -> None:
                 c = headers.get(d["key"][len("header."):].lower())
                 if c is None:
                     continue
-                d["data"] = {"name": c["name"], "value": c["value"]}
+                data = {"name": c["name"], "value": c["value"]}
+                if d.get("data") != data:
+                    d.pop("skipped", None)
+                d["data"] = data
                 d["detail"] = _header_conv_detail(c)
                 diffs.append(d)
             elif d["key"] == "auth":
                 if auth is None:
                     continue
+                if d.get("data") != auth["config"]:
+                    d.pop("skipped", None)
                 d["data"] = deepcopy(auth["config"])
                 d["detail"] = _auth_conv_detail(auth)
                 diffs.append(d)
