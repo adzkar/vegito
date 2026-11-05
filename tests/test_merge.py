@@ -700,6 +700,19 @@ def test_convention_outlier_diff():
     assert not [d for d in ds.values() if d["change"] == "convention"]
 
 
+def test_blank_header_is_not_a_convention_outlier():
+    """A header present with an empty value is unfilled, not a deviation."""
+    from vegito.diff import diff_endpoint
+    op, conv = _op_with_header(), _conv()
+    req = {"url_path": "{{baseUrl}}/x/", "path_params": [], "query": {},
+           "body": {}, "docs": "", "rel": "X.yml", "name": "X",
+           "method": "get", "norm": "/x",
+           "headers": {"x-org-key": {"name": "X-Org-Key", "value": ""}},
+           "auth": None}
+    assert not [d for d in diff_endpoint(op, req, conventions=conv)
+                if d["change"] == "convention"]
+
+
 def _deviating_collection(root):
     """Make List.yml deviate from a 2-vote bearer convention. Returns its path."""
     (root / "demo/Widgets/Filled2.yml").write_text(textwrap.dedent("""\
@@ -1064,6 +1077,20 @@ def test_plan_marks_conventions_as_snapshot(coll, tmp_path):
     save_plan(changeset_to_plan(cs, str(v2), root), out)
     assert out.read_text().startswith(
         "# conventions is a changeset-time snapshot")
+    assert load_plan(out)["conventions"]["auth"]["config"]["token"] == \
+        "{{token}}"
+
+
+def test_plan_serializes_without_yaml_anchors(coll, tmp_path):
+    """Shared convention objects must not leak &id/*id aliases into the
+    plan — deleting the anchored entry would crash load_plan."""
+    root, _, v2 = coll
+    _deviating_collection(root)  # one auth convention diff + modal config
+    _, _, cs = _changeset(v2, root)
+    out = tmp_path / "p.yml"
+    save_plan(changeset_to_plan(cs, str(v2), root), out)
+    text = out.read_text()
+    assert "&id" not in text and "*id" not in text
     assert load_plan(out)["conventions"]["auth"]["config"]["token"] == \
         "{{token}}"
 

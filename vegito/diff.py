@@ -1,6 +1,8 @@
 """Compute a changeset between schema operations and collection requests."""
 from __future__ import annotations
 
+from copy import deepcopy
+
 from .collection import collection_conventions
 from .common import _PARAM_RE, fingerprint, path_segments
 
@@ -41,8 +43,8 @@ def _convention_diffs(op: dict, req: dict,
 
     Only fields the schema still declares are checked (a dropped header is
     governed by its 'removed' diff), and only requests that carry the field
-    — a missing or ``inherit`` auth can't be told apart from deliberate
-    inheritance, so it is left alone.
+    — a missing, blank, or ``inherit`` value can't be told apart from
+    unfilled, so it is left alone.
     """
     conv = conventions or {}
     diffs = []
@@ -50,7 +52,9 @@ def _convention_diffs(op: dict, req: dict,
         if lname not in op["headers"]:
             continue
         entry = req["headers"].get(lname)
-        if entry is None or str(entry.get("value") or "") == c["value"]:
+        value = str(entry.get("value") or "") \
+            if isinstance(entry, dict) else ""
+        if not value or value == c["value"]:
             continue
         diffs.append(_fdiff(
             f"header.{c['name']}", "convention",
@@ -64,7 +68,7 @@ def _convention_diffs(op: dict, req: dict,
         diffs.append(_fdiff(
             "auth", "convention",
             f"auth differs from collection convention "
-            f"({auth['config'].get('type')})", auth["config"]))
+            f"({auth['config'].get('type')})", deepcopy(auth["config"])))
     return diffs
 
 

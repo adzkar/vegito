@@ -71,10 +71,21 @@ def save_plan(plan: dict, path: Path):
     Path(path).write_text(header + _yaml_to_text(plan))
 
 
+def _dealias(node):
+    """Rebuild a structure with fresh containers — shared sub-objects would
+    otherwise serialize as ``&id``/``*id`` anchors into the user-editable
+    plan file (deepcopy alone preserves the shared topology)."""
+    if isinstance(node, dict):
+        return {k: _dealias(v) for k, v in node.items()}
+    if isinstance(node, list):
+        return [_dealias(v) for v in node]
+    return node
+
+
 def _yaml_to_text(data) -> str:
     from io import StringIO
     buf = StringIO()
-    _yaml.dump(data, buf)
+    _yaml.dump(_dealias(data), buf)
     return buf.getvalue()
 
 
