@@ -67,12 +67,16 @@ Plan action vocabulary:
   rewrites the field to the convention). The serialized block is a
   changeset-time snapshot for review — `apply` re-votes over the plan's
   final survivor set, so a `removed` entry flipped to `keep` rejoins.
-  Only the block's `proposed` entries are honored verbatim — inferred
-  entries are always re-derived, so a stale snapshot can't revive a dead
-  convention. An emptied block (`{headers: {}, auth: null}`) is the
-  decline signal — apply keeps it dead instead of regenerating; an absent
-  block regenerates (legacy plans). Entries marked `proposed: true` are
-  cold-start suggestions, not votes — `count` is then the number of
+  Only the block's `proposed` entries are honored verbatim, and only on
+  a side the re-vote didn't win — inferred entries are always
+  re-derived, so a stale snapshot can't revive a dead convention. A
+  hand-written entry is honored the same way if it's marked
+  `proposed: true` and carries a usable `value`/`config`; unmarked
+  entries are treated as stale inference and dropped. An emptied block
+  (`{headers: {}, auth: null}`) is the decline signal — apply keeps
+  dead sides dead instead of regenerating; an absent block regenerates
+  (legacy plans). Entries marked `proposed: true` are cold-start
+  suggestions, not votes — `count` is then the number of
   requests carrying the field. The resolved block is authoritative for
   new skeletons and applied `convention` diffs alike (retarget re-syncs
   them); when it differs from the serialized block, the apply report
@@ -145,7 +149,10 @@ Conventions observed in the target collection (replicate in `skeleton.py`):
   bearer auth yield `proposed: true` env-var suggestions — the wizard asks
   per var (plan files get derived defaults). Only headers a matched or
   added op declares are proposed (an op-less header could never be
-  consumed). `retarget_convention_diffs`
+  consumed). A declined suggestion is remembered in the manifest's
+  `declined_proposals` sigs (`header:<lname>:<value>` /
+  `auth:<fingerprint(config)>`) and filtered at regeneration — the sig
+  covers the proposed value, so a renamed var re-asks. `retarget_convention_diffs`
   re-syncs diffs after renames or plan `conventions:` edits — call it
   before applying, never write to `environments/*.yml`. Any diff that
   caches a convention copy must re-sync there: `change: "convention"` diffs
