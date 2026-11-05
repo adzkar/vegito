@@ -1331,3 +1331,28 @@ def test_retarget_convention_diffs():
     retarget_convention_diffs(container)
     assert [d["key"] for d in container["changed"][0]["diffs"]] == ["docs"]
     assert len(container["changed"]) == 1
+
+
+def test_retarget_resyncs_added_header_convention():
+    """'added' header diffs track a renamed/dropped convention too — apply
+    writes data.convention_value verbatim, so it must not go stale."""
+    from vegito.diff import retarget_convention_diffs
+    container = {
+        "conventions": {"headers": {"x-k": {"name": "X-K", "value": "{{a}}",
+                                           "count": 2}},
+                        "auth": None},
+        "changed": [{"diffs": [
+            {"key": "header.X-K", "change": "added", "action": "apply",
+             "detail": "header 'X-K' added (convention: {{a}})",
+             "data": {"name": "X-K", "convention_value": "{{a}}"}}]}],
+    }
+    d = container["changed"][0]["diffs"][0]
+    container["conventions"]["headers"]["x-k"]["value"] = "{{b}}"
+    retarget_convention_diffs(container)
+    assert d["data"]["convention_value"] == "{{b}}"
+    assert d["detail"] == "header 'X-K' added (convention: {{b}})"
+
+    del container["conventions"]["headers"]["x-k"]
+    retarget_convention_diffs(container)
+    assert "convention_value" not in d["data"]
+    assert d["detail"] == "header 'X-K' added"

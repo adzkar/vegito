@@ -134,7 +134,11 @@ Conventions observed in the target collection (replicate in `skeleton.py`):
   added op declares are proposed (an op-less header could never be
   consumed). `retarget_convention_diffs`
   re-syncs diffs after renames or plan `conventions:` edits — call it
-  before applying, never write to `environments/*.yml`.
+  before applying, never write to `environments/*.yml`. Any diff that
+  caches a convention copy must re-sync there: `change: "convention"` diffs
+  (`data.value`/`config` + detail text) and `header.*` "added" diffs
+  (`data.convention_value` + the ` (convention: …)` suffix — apply writes
+  both verbatim).
 - `data: |-` literal blocks: no trailing newline in `LiteralScalarString`,
   or ruamel emits `data: |` instead.
 - **Hand-emitted scalars** (`skeleton.py` `_yaml_scalar`) must round-trip as

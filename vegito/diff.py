@@ -94,7 +94,9 @@ def retarget_convention_diffs(container: dict) -> None:
     """Re-sync ``convention`` diffs with the container's conventions map —
     after the user renamed proposed vars or hand-edited a plan's
     ``conventions:`` values. Diffs whose convention was removed are
-    dropped, and emptied ``changed`` items are pruned.
+    dropped, and emptied ``changed`` items are pruned. ``added`` header
+    diffs carry the convention as ``data.convention_value`` — it is
+    re-synced (or dropped) the same way, since apply writes it verbatim.
     """
     conv = container.get("conventions") or {}
     headers = conv.get("headers") or {}
@@ -102,6 +104,21 @@ def retarget_convention_diffs(container: dict) -> None:
     for item in container.get("changed") or []:
         diffs = []
         for d in item["diffs"]:
+            if d["change"] == "added" and d["key"].startswith("header."):
+                data = d.get("data") or {}
+                detail = d.get("detail") or ""
+                old = data.pop("convention_value", None)
+                if old is not None:
+                    suffix = f" (convention: {old})"
+                    if detail.endswith(suffix):
+                        detail = detail[: -len(suffix)]
+                c = headers.get(d["key"][len("header."):].lower())
+                if c is not None:
+                    data["convention_value"] = c["value"]
+                    detail += f" (convention: {c['value']})"
+                d["data"], d["detail"] = data, detail
+                diffs.append(d)
+                continue
             if d["change"] != "convention":
                 diffs.append(d)
                 continue
