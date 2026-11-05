@@ -28,8 +28,9 @@ def execute_plan(root: Path, plan: dict, ops: list[dict], reqs: list[dict],
     # Vote conventions over the plan's final survivor set — a removed
     # entry flipped to keep rejoins the vote. The plan's serialized
     # conventions block is a changeset-time snapshot, kept for review.
-    doomed = {i["file"] for i in plan.get("removed", [])
-              if i.get("action", "archive") in ("archive", "delete")}
+    doomed = {i.get("file") for i in plan.get("removed", [])
+              if isinstance(i, dict)
+              and i.get("action", "archive") in ("archive", "delete")}
     conventions = collection_conventions(
         [r for r in reqs if r["rel"] not in doomed])
 
@@ -51,10 +52,10 @@ def execute_plan(root: Path, plan: dict, ops: list[dict], reqs: list[dict],
 
     # --- removed endpoints ---
     for item in plan.get("removed", []):
-        rel = item["file"]
-        action = item.get("action", "archive")
-        label = _ep(item["method"], item["path"])
         try:
+            rel = item["file"]
+            action = item.get("action", "archive")
+            label = _ep(item["method"], item["path"])
             if action == "archive":
                 archive_file(root, rel)
                 report["archived"].append(f"{label} — {rel}")
@@ -66,7 +67,7 @@ def execute_plan(root: Path, plan: dict, ops: list[dict], reqs: list[dict],
                     manual.append(rel)
                 report["skipped"].append(f"kept {label} — {rel} (marked manual)")
         except Exception as exc:
-            report["errors"].append(f"{action} {label} — {rel}: {exc}")
+            report["errors"].append(f"removed {_plan_label(item)}: {exc}")
 
     # --- moved endpoints ---
     for item in plan.get("moved", []):
@@ -135,6 +136,13 @@ def execute_plan(root: Path, plan: dict, ops: list[dict], reqs: list[dict],
             endpoints[key] = mf.endpoint_snapshot(op, req["rel"], {})
 
     return report
+
+
+def _plan_label(item) -> str:
+    """Best-effort label for a (possibly malformed) plan entry."""
+    if isinstance(item, dict):
+        return str(item.get("file") or item.get("path") or item)
+    return repr(item)
 
 
 def _norm_of(path: str) -> str:
