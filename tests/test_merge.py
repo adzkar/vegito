@@ -655,6 +655,11 @@ def test_conventions_modal_min2():
     assert single["headers"] == {}
     blanks = collection_conventions([req("", None), req("", None)])
     assert blanks["headers"] == {} and blanks["auth"] is None
+    # empty-credential auth configs are absence, not a convention
+    empty_auth = collection_conventions(
+        [req("", {"type": "bearer", "token": ""}),
+         req("", {"type": "bearer", "token": ""})])
+    assert empty_auth["auth"] is None
 
 
 def test_conventions_tie_break_is_deterministic():

@@ -116,6 +116,9 @@ def collection_conventions(reqs: list[dict]) -> dict:
     Returns ``{"headers": {lname: {"name", "value", "count"}},
     "auth": {"config": {...}, "count": n} | None}`` — the values that
     generated skeletons should inherit and outliers are flagged against.
+    Empty states never vote: blank header values and auth configs whose
+    non-``type`` values are all empty don't count (they're absence, not
+    convention).
     """
     h_votes: dict[str, Counter] = {}
     h_names: dict[str, str] = {}
@@ -129,7 +132,9 @@ def collection_conventions(reqs: list[dict]) -> dict:
             h_votes.setdefault(lname, Counter())[value] += 1
             h_names.setdefault(lname, str(entry.get("name") or lname))
         cfg = req.get("auth")
-        if isinstance(cfg, dict) and cfg.get("type") not in (None, "inherit"):
+        if isinstance(cfg, dict) and cfg.get("type") not in (None, "inherit") \
+                and any(v not in (None, "") for k, v in cfg.items()
+                        if k != "type"):
             key = fingerprint(cfg)
             a_votes[key] += 1
             a_configs[key] = dict(cfg)
