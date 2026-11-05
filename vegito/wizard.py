@@ -156,13 +156,11 @@ def _review(changeset: dict, dirs: list[str]) -> bool:
                     "  apply:", choices=choices).ask()
                 if picked is None:
                     return False
-                ai = 0
-                for d in item["diffs"]:
+                for n, d in enumerate(item["diffs"]):
                     if d["change"] == "note":
                         d["action"] = "note"
                     else:
-                        d["action"] = "apply" if ai in picked else "skip"
-                        ai += 1
+                        d["action"] = "apply" if n in picked else "skip"
     return True
 
 

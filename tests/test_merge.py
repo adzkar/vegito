@@ -684,6 +684,38 @@ def test_skipped_convention_resurfaces_on_flip(coll):
     assert res and res[0]["data"]["token"] == "{{tok2}}"
 
 
+def test_review_checkbox_maps_by_diff_index(monkeypatch):
+    """A leading note diff doesn't shift which diffs the picks land on."""
+    from vegito import wizard
+
+    class _Ask:
+        def __init__(self, result):
+            self.result = result
+
+        def ask(self):
+            return self.result
+
+    changeset = {"added": [], "removed": [], "moved": [],
+                 "changed": [{"request": {"rel": "R.yml", "name": "R"},
+                              "operation": {"method": "get", "path": "/x/"},
+                              "state_key": "get /x",
+                              "diffs": [
+                                  {"key": "body.x!required", "change": "note",
+                                   "detail": "n", "action": "note",
+                                   "data": {}},
+                                  {"key": "param.query.a", "change": "added",
+                                   "detail": "a", "action": "apply",
+                                   "data": {}},
+                                  {"key": "param.query.b", "change": "removed",
+                                   "detail": "b", "action": "apply",
+                                   "data": None}]}]}
+    monkeypatch.setattr(wizard.questionary, "checkbox",
+                        lambda *a, **k: _Ask([1]))  # check only 'a'
+    assert wizard._review(changeset, []) is True
+    a, b, c = changeset["changed"][0]["diffs"]
+    assert (a["action"], b["action"], c["action"]) == ("note", "apply", "skip")
+
+
 def test_convention_diffs_unchecked_in_review(monkeypatch):
     """The wizard leaves convention diffs unchecked — opt-in there too."""
     from vegito import wizard
