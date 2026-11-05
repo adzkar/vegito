@@ -1280,6 +1280,14 @@ def test_cold_start_proposals(tmp_path):
     assert set(cs["conventions"]["headers"]) == {"x-custom-key",
                                                  "content-type"}
 
+    # env vars that normalize identically pick a stable winner across runs
+    prop = collection_proposals(
+        [_cold_req("", {"type": "bearer", "token": ""}),
+         _cold_req("", {"type": "bearer", "token": ""})],
+        {"customKey", "custom_key", "token", "Token"})
+    assert prop["headers"]["x-custom-key"]["value"] == "{{customKey}}"
+    assert prop["auth"]["config"]["token"] == "{{Token}}"
+
     cold_no_root = build_changeset([op], reqs, None)
     assert not cold_no_root["conventions"]["headers"]
     warm = build_changeset(

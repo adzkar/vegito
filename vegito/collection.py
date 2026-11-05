@@ -199,7 +199,7 @@ def _derive_var_name(header: str, env_names: set[str]) -> str:
     derived = re.sub(r"[^a-z0-9]+", "_", header.lower()).strip("_")
     if derived.startswith("x_"):
         derived = derived[2:]
-    for v in env_names:
+    for v in sorted(env_names):
         if _norm_var(v) == _norm_var(derived):
             return v
     return derived or "value"
@@ -237,7 +237,8 @@ def collection_proposals(reqs: list[dict],
         headers[lname] = {"name": h_names[lname],
                           "value": "{{" + var + "}}",
                           "count": count, "proposed": True}
-    token = next((v for v in env_names if _norm_var(v) == "token"), "token")
+    token = next((v for v in sorted(env_names) if _norm_var(v) == "token"),
+                 "token")
     auth = ({"config": {"type": "bearer", "token": "{{" + token + "}}"},
              "count": bearer, "proposed": True} if bearer >= 2 else None)
     return {"headers": headers, "auth": auth}
