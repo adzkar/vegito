@@ -203,12 +203,12 @@ def build_changeset(ops: list[dict], reqs: list[dict],
     opid_to_key = {v.get("operation_id"): k for k, v in state.items()
                    if v.get("operation_id")}
 
-    conventions = collection_conventions(reqs)
     op_index = {(o["method"], o["norm"]): o for o in ops}
     req_index = {(r["method"], r["norm"]): r for r in reqs}
 
     added, removed, changed, moved = [], [], [], []
     skipped_count = 0
+    matched: list[tuple[dict, dict]] = []
     matched_reqs: set[int] = set()
     moved_from_keys: set[str] = set()
 
@@ -226,6 +226,25 @@ def build_changeset(ops: list[dict], reqs: list[dict],
                               "folder": None, "name": op["operation_id"]})
             continue
         matched_reqs.add(id(req))
+        matched.append((op, req))
+
+    removed_ids: set[int] = set()
+    for req in reqs:
+        if id(req) in matched_reqs or (req["method"], req["norm"]) in op_index:
+            continue
+        if req["rel"] in manual:
+            continue
+        if f"{req['method']} {req['norm']}" in moved_from_keys:
+            continue
+        removed_ids.add(id(req))
+        removed.append({"request": req, "action": "archive"})
+
+    # Vote over requests that survive the merge — a file about to be archived
+    # would set a convention that evaporates with it.
+    conventions = collection_conventions(
+        [r for r in reqs if id(r) not in removed_ids])
+
+    for op, req in matched:
         state_key = f"{op['method']} {op['norm']}"
         entry_state = state.get(state_key) or {}
         diffs = diff_endpoint(op, req, entry_state, conventions)
@@ -237,15 +256,6 @@ def build_changeset(ops: list[dict], reqs: list[dict],
         if any(not d.get("skipped") for d in diffs):
             changed.append({"operation": op, "request": req, "diffs": diffs,
                             "state_key": state_key})
-
-    for req in reqs:
-        if id(req) in matched_reqs or (req["method"], req["norm"]) in op_index:
-            continue
-        if req["rel"] in manual:
-            continue
-        if f"{req['method']} {req['norm']}" in moved_from_keys:
-            continue
-        removed.append({"request": req, "action": "archive"})
 
     return {"added": added, "removed": removed, "changed": changed,
             "moved": moved, "skipped_count": skipped_count,

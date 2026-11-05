@@ -511,6 +511,31 @@ def _op_with_header():
             "description": ""}
 
 
+def test_conventions_exclude_removed_requests(coll):
+    """Files slated for removal don't vote on the convention they vacate."""
+    root, _, v2 = coll
+    legacy = root / "legacy"
+    legacy.mkdir()
+    for i in range(3):
+        (legacy / f"old{i}.yml").write_text(textwrap.dedent(f"""\
+            info: {{name: Old{i}, type: http}}
+            http:
+              method: GET
+              url: "{{{{baseUrl}}}}/legacy/old{i}/"
+              headers:
+                - {{name: X-Org-Key, value: "{{{{old}}}}"}}
+              auth: {{type: basic, username: u, password: p}}
+            """))
+    _, _, cs = _changeset(v2, root)
+    assert len([i for i in cs["removed"]
+                if i["request"]["rel"].startswith("legacy/")]) == 3
+    conv = cs["conventions"]
+    # Live files (List, Filled) share bearer/{{token}} — the 3 doomed basic
+    # files would have outvoted them if they still had a vote.
+    assert conv["auth"]["config"]["type"] == "bearer"
+    assert "x-org-key" not in conv["headers"]
+
+
 def test_conventions_modal_min2():
     """Modal header value/auth config wins only with >=2 uses."""
     from vegito.collection import collection_conventions
