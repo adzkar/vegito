@@ -744,6 +744,28 @@ def test_plan_roundtrips_conventions(coll, tmp_path):
     assert loaded["conventions"]["auth"]["config"]["token"] == "{{token}}"
 
 
+def test_plan_keeps_skipped_diffs_skipped(coll):
+    """A previously skipped diff serializes as skip, not back to apply."""
+    root, _, v2 = coll
+    ops, reqs, cs = _changeset(v2, root)
+    for item in cs["changed"]:
+        for d in item["diffs"]:
+            if d["key"] == "param.query.category":
+                d["action"] = "skip"
+    _apply_all(v2, root, ops, reqs, cs)
+
+    # a fresh deviation keeps the endpoint in `changed` so its diffs serialize
+    list_yml = root / "demo/Widgets/List.yml"
+    list_yml.write_text(
+        list_yml.read_text().replace("docs: List widgets.", "docs: tampered"))
+    _, _, cs2 = _changeset(v2, root)
+    plan = changeset_to_plan(cs2, str(v2), root)
+    item = next(i for i in plan["changed"]
+                if i["file"] == "demo/Widgets/List.yml")
+    cat = next(d for d in item["diffs"] if d["key"] == "param.query.category")
+    assert cat["action"] == "skip"
+
+
 def test_root_create_resolves_symlinked_root(tmp_path):
     """Root-level create works when the collection path is unresolved."""
     from vegito.apply import create_request

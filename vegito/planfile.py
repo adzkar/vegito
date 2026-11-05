@@ -9,6 +9,15 @@ from ruamel.yaml import YAML
 _yaml = YAML(typ="safe")
 
 
+def _plan_diff(d: dict) -> dict:
+    """Serialize one diff — a previously skipped diff stays ``skip`` in the
+    plan so an unedited apply can't resurrect it."""
+    out = {k: v for k, v in d.items() if k != "skipped"}
+    if d.get("skipped"):
+        out["action"] = "skip"
+    return out
+
+
 def changeset_to_plan(changeset: dict, schema_path: str, root: Path) -> dict:
     """Convert a build_changeset result into a plain, file-friendly plan."""
     plan = {
@@ -51,8 +60,7 @@ def changeset_to_plan(changeset: dict, schema_path: str, root: Path) -> dict:
             "operation_id": item["operation"]["operation_id"],
             "operation": item["operation"],
             "state_key": item["state_key"],
-            "diffs": [{k: v for k, v in d.items() if k != "skipped"}
-                      for d in item["diffs"]],
+            "diffs": [_plan_diff(d) for d in item["diffs"]],
         })
     return plan
 
