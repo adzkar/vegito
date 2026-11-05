@@ -61,6 +61,11 @@ def parse_request_file(path: Path, root: Path) -> dict | None:
         return None
     if not isinstance(doc, dict):
         return None
+    # A merge-plan.yml left inside the collection is a plan, not a
+    # request — without this it scans as a GET '' request and gets
+    # flagged 'removed' on the next run.
+    if {"added", "removed", "changed", "moved"} & doc.keys():
+        return None
     info = doc.get("info") or {}
     if info.get("type") not in (None, "http"):
         return None

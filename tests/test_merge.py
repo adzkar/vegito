@@ -511,6 +511,20 @@ def _op_with_header():
             "description": ""}
 
 
+def test_plan_file_inside_collection_is_not_scanned(coll):
+    """A merge-plan.yml left in the collection root must not be picked
+    up as a request — it would flag a spurious 'removed' next run."""
+    root, _, v2 = coll
+    ops, reqs, cs = _changeset(v2, root)
+    plan = changeset_to_plan(cs, str(v2), root)
+    save_plan(plan, root / "merge-plan.yml")
+    reqs = scan_collection(root)
+    assert "merge-plan.yml" not in {r["rel"] for r in reqs}
+    _, _, cs = _changeset(v2, root)
+    assert not [i["request"]["rel"] for i in cs["removed"]
+                if "merge-plan" in i["request"]["rel"]]
+
+
 def test_conventions_exclude_removed_requests(coll):
     """Files slated for removal don't vote on the convention they vacate."""
     root, _, v2 = coll
