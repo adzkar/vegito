@@ -63,7 +63,8 @@ Plan action vocabulary:
 - `conventions`: inferred collection conventions (`headers.<lname>` →
   modal `value`, `auth.config` → modal auth dict; each with vote `count`).
   New skeletons inherit them; `change: "convention"` diffs flag matched
-  requests that deviate (`apply` rewrites the field to the convention).
+  requests that deviate — they emit `action: skip` (opt-in; `apply`
+  rewrites the field to the convention).
 
 ## Domain primer (opencollection format)
 
@@ -113,9 +114,13 @@ Conventions observed in the target collection (replicate in `skeleton.py`):
 - **Manual files**: files matching nothing in the schema would look "removed";
   `keep` records them in `manual_files` so they stop being flagged.
 - **Conventions** (`collection_conventions`): modal header value / auth
-  config wins with ≥2 uses. New skeletons inherit them; requests *carrying*
-  a deviating value get an opt-in `convention` diff — a missing field or
-  `auth: inherit` is never flagged (can't tell deliberate inheritance).
+  config wins with ≥2 uses, voted over requests that survive the merge —
+  `removed` files don't get a vote (a dead convention evaporates with the
+  archive). New skeletons inherit them; requests *carrying* a deviating
+  value get an opt-in `convention` diff (emits `action: skip`; the skip
+  signature covers the convention value, so a modal flip resurfaces it).
+  A missing field or `auth: inherit` is never flagged (can't tell
+  deliberate inheritance).
 - `data: |-` literal blocks: no trailing newline in `LiteralScalarString`,
   or ruamel emits `data: |` instead.
 - **Hand-emitted scalars** (`skeleton.py` `_yaml_scalar`) must round-trip as
