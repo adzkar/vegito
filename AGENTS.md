@@ -73,7 +73,10 @@ Plan action vocabulary:
   decline signal — apply keeps it dead instead of regenerating; an absent
   block regenerates (legacy plans). Entries marked `proposed: true` are
   cold-start suggestions, not votes — `count` is then the number of
-  requests carrying the field.
+  requests carrying the field. The resolved block is authoritative for
+  new skeletons and applied `convention` diffs alike (retarget re-syncs
+  them); when it differs from the serialized block, the apply report
+  notes which source won.
 
 ## Domain primer (opencollection format)
 

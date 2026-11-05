@@ -738,6 +738,26 @@ def test_execute_plan_notes_conventions_divergence(coll):
     assert doc["http"]["auth"]["token"] == "{{token}}"  # re-vote, not edit
 
 
+def test_execute_plan_no_spurious_conventions_note(coll):
+    """A shared hand-managed header absent from the schema must not
+    trigger the divergence note on an untouched plan."""
+    root, _, v2 = coll
+    for rel in ("demo/Widgets/List.yml", "demo/Widgets/Filled.yml"):
+        p = root / rel
+        p.write_text(p.read_text().replace(
+            'url: "{{baseUrl}}/',
+            'headers: [{name: X-Org, value: "1"}]\n          '
+            'url: "{{baseUrl}}/'))
+    ops, reqs, cs = _changeset(v2, root)
+    plan = changeset_to_plan(cs, str(v2), root)
+    for item in plan["added"]:
+        item["folder"] = item["folder"] or "demo/Widgets"
+    manifest = load_manifest(root)
+    report = execute_plan(root, plan, ops, reqs, manifest)
+    assert not report["errors"], report["errors"]
+    assert not any("differ" in n for n in report["notes"])
+
+
 def test_execute_plan_tolerates_malformed_removed_entry(coll):
     """A removed entry without 'file' degrades to an errors row."""
     root, _, v2 = coll
@@ -750,6 +770,24 @@ def test_execute_plan_tolerates_malformed_removed_entry(coll):
     manifest = load_manifest(root)
     report = execute_plan(root, plan, ops, reqs, manifest)
     assert report["errors"]
+    assert (root / "demo/Widgets/demo_widgets_create.yml").exists()
+
+
+def test_execute_plan_tolerates_malformed_moved_and_changed(coll):
+    """changed/moved entries missing keys degrade to errors rows."""
+    root, _, v2 = coll
+    ops, reqs, cs = _changeset(v2, root)
+    plan = changeset_to_plan(cs, str(v2), root)
+    plan["changed"].append({"method": "get", "path": "/x/",
+                            "diffs": []})  # no file
+    plan["moved"].append({"operation": {"method": "get", "norm": "/y",
+                                        "path": "/y/"},
+                          "action": "move"})  # no file
+    for item in plan["added"]:
+        item["folder"] = item["folder"] or "demo/Widgets"
+    manifest = load_manifest(root)
+    report = execute_plan(root, plan, ops, reqs, manifest)
+    assert len(report["errors"]) == 2
     assert (root / "demo/Widgets/demo_widgets_create.yml").exists()
 
 
@@ -1043,6 +1081,23 @@ def test_rechecked_skip_serializes_as_apply(monkeypatch, tmp_path):
     assert d["action"] == "apply" and "skipped" not in d
     plan = changeset_to_plan(changeset, "s.yaml", tmp_path)
     assert plan["changed"][0]["diffs"][0]["action"] == "apply"
+
+
+def test_skeleton_tolerates_exotic_auth_values():
+    """A YAML-native auth value (datetime.date) renders via str()."""
+    import datetime
+
+    from vegito.skeleton import render_request_file
+    op = {"operation_id": "x", "method": "get", "path": "/x/", "norm": "/x",
+          "path_params": [], "query": {}, "headers": {}, "body": {},
+          "auth_required": True, "responses": {}, "tags": [],
+          "description": ""}
+    conv = {"headers": {},
+            "auth": {"config": {"type": "apikey", "key": "k",
+                                "expires": datetime.date(2025, 1, 1)},
+                     "count": 2}}
+    text = render_request_file(op, 1, None, conv)
+    assert "expires" in text
 
 
 def test_skeleton_uses_conventions():
@@ -1616,14 +1671,14 @@ def test_retarget_strips_diverged_suffix():
 
 
 def test_retarget_tolerates_missing_diffs_key():
-    """A hand-edited 'changed' entry without 'diffs' is pruned, not a
-    bare KeyError."""
+    """A hand-edited 'changed' entry without 'diffs' is no bare KeyError —
+    it survives retarget for the caller's per-item error handling."""
     from vegito.diff import retarget_convention_diffs
     container = {"conventions": {"headers": {}, "auth": None},
                    "changed": [{"file": "X.yml", "method": "get",
                                 "path": "/x/"}]}
     retarget_convention_diffs(container)
-    assert container["changed"] == []
+    assert container["changed"][0]["diffs"] == []
 
 
 def test_auth_convention_diff_snapshots_config(tmp_path):

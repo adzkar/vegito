@@ -35,6 +35,13 @@ def execute_plan(root: Path, plan: dict, ops: list[dict], reqs: list[dict],
     survivors = [r for r in reqs if r["rel"] not in doomed]
     planned_conv = plan.get("conventions")
     conventions = collection_conventions(survivors)
+    # Same filter build_changeset applies before serializing — without it
+    # the divergence note fires on every untouched plan whose collection
+    # shares a hand-managed header no schema op declares.
+    live_headers = {h for o in ops for h in o["headers"]}
+    conventions["headers"] = {k: v for k, v in
+                              conventions["headers"].items()
+                              if k in live_headers}
     conv_source = "the survivor re-vote"
     if not conventions["headers"] and not conventions["auth"]:
         # Only the block's proposed entries are honored — their named vars
@@ -80,19 +87,20 @@ def execute_plan(root: Path, plan: dict, ops: list[dict], reqs: list[dict],
 
     # --- added endpoints ---
     for item in plan.get("added", []):
-        op = item["operation"]
-        key = f"{op['method']} {op['norm']}"
-        if item.get("action") != "add":
-            report["skipped"].append(f"+ {_ep(op['method'], op['path'])} (new endpoint)")
-            continue
         try:
+            op = item["operation"]
+            key = f"{op['method']} {op['norm']}"
+            if item.get("action") != "add":
+                report["skipped"].append(
+                    f"+ {_ep(op['method'], op['path'])} (new endpoint)")
+                continue
             path = create_request(root, item.get("folder") or "", op,
                                   item.get("name"), conventions)
             rel = str(path.relative_to(root))
             endpoints[key] = mf.endpoint_snapshot(op, rel, {})
             report["created"].append(f"{_ep(op['method'], op['path'])} → {rel}")
         except Exception as exc:  # keep going; report at the end
-            report["errors"].append(f"create {_ep(op['method'], op['path'])}: {exc}")
+            report["errors"].append(f"create {_plan_label(item)}: {exc}")
 
     # --- removed endpoints ---
     for item in plan.get("removed", []):
@@ -115,14 +123,14 @@ def execute_plan(root: Path, plan: dict, ops: list[dict], reqs: list[dict],
 
     # --- moved endpoints ---
     for item in plan.get("moved", []):
-        op = item["operation"]
-        new_key = f"{op['method']} {op['norm']}"
-        if item.get("action") != "move":
-            report["skipped"].append(
-                f"~ {_ep(op['method'], item.get('from', '?'))} → "
-                f"{op['path']} (moved)")
-            continue
         try:
+            op = item["operation"]
+            new_key = f"{op['method']} {op['norm']}"
+            if item.get("action") != "move":
+                report["skipped"].append(
+                    f"~ {_ep(op['method'], item.get('from', '?'))} → "
+                    f"{op['path']} (moved)")
+                continue
             rel = item["file"]
             path = root / rel
             _patch_req_block_url(path, op)
@@ -131,18 +139,21 @@ def execute_plan(root: Path, plan: dict, ops: list[dict], reqs: list[dict],
             report["moved"].append(
                 f"{_ep(op['method'], item.get('from', '?'))} → {op['path']} — {rel}")
         except Exception as exc:
-            report["errors"].append(f"move {_ep(op['method'], op['path'])}: {exc}")
+            report["errors"].append(f"move {_plan_label(item)}: {exc}")
 
     # --- changed endpoints ---
     for item in plan.get("changed", []):
-        op = op_by_key.get((item["method"], _norm_of(item["path"]))) or \
-            item.get("operation")
-        rel = item["file"]
-        state_key = item.get("state_key") or f"{item['method']} {_norm_of(item['path'])}"
-        label = _ep(item["method"], item["path"])
-        apply_diffs = [d for d in item["diffs"] if d.get("action") == "apply"]
-        skip_diffs = [d for d in item["diffs"] if d.get("action") == "skip"]
         try:
+            op = op_by_key.get((item["method"], _norm_of(item["path"]))) or \
+                item.get("operation")
+            rel = item["file"]
+            state_key = item.get("state_key") or \
+                f"{item['method']} {_norm_of(item['path'])}"
+            label = _ep(item["method"], item["path"])
+            apply_diffs = [d for d in item["diffs"]
+                           if d.get("action") == "apply"]
+            skip_diffs = [d for d in item["diffs"]
+                          if d.get("action") == "skip"]
             if apply_diffs:
                 patch_request_file(root / rel, apply_diffs)
             for d in apply_diffs:
@@ -164,11 +175,12 @@ def execute_plan(root: Path, plan: dict, ops: list[dict], reqs: list[dict],
                         skipped_sigs.pop(d["key"], None)
                 endpoints[state_key] = mf.endpoint_snapshot(op, rel, skipped_sigs)
         except Exception as exc:
-            report["errors"].append(f"patch {rel}: {exc}")
+            report["errors"].append(f"patch {_plan_label(item)}: {exc}")
 
     # --- untouched matched endpoints: refresh snapshots so moved-detection
     # and response baselines stay current ---
-    planned = {item.get("state_key") for item in plan.get("changed", [])}
+    planned = {item.get("state_key") for item in plan.get("changed", [])
+               if isinstance(item, dict)}
     for op in ops:
         key = f"{op['method']} {op['norm']}"
         if key in endpoints or key in planned:

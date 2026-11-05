@@ -101,7 +101,9 @@ def retarget_convention_diffs(container: dict) -> None:
     """Re-sync ``convention`` diffs with the container's conventions map —
     after the user renamed proposed vars or hand-edited a plan's
     ``conventions:`` values. Diffs whose convention was removed are
-    dropped, and emptied ``changed`` items are pruned. ``added`` header
+    dropped, and ``changed`` items emptied by that are pruned — one born
+    without diffs is malformed and stays for the caller's per-item error
+    handling. ``added`` header
     diffs carry the convention as ``data.convention_value`` — it is
     re-synced (or dropped) the same way, since apply writes it verbatim.
     A rewritten convention value also drops the diff's ``skipped`` flag:
@@ -115,7 +117,9 @@ def retarget_convention_diffs(container: dict) -> None:
     headers = conv.get("headers") or {}
     auth = conv.get("auth")
     skipped_lost = 0
+    changed = []
     for item in container.get("changed") or []:
+        had_diffs = bool(item.get("diffs"))
         diffs = []
         for d in item.get("diffs") or []:
             if d["change"] == "added" and d["key"].startswith("header."):
@@ -162,8 +166,9 @@ def retarget_convention_diffs(container: dict) -> None:
             else:
                 diffs.append(d)
         item["diffs"] = diffs
-    container["changed"] = [i for i in container.get("changed") or []
-                            if i["diffs"]]
+        if diffs or not had_diffs:
+            changed.append(item)
+    container["changed"] = changed
     if "skipped_count" in container:
         container["skipped_count"] = max(
             0, container["skipped_count"] - skipped_lost)
