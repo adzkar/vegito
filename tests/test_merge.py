@@ -1045,7 +1045,7 @@ def test_patch_tolerates_null_and_nonlist_sections(tmp_path):
     assert ex["params"][0]["name"] == "page"
     assert doc["http"]["headers"][0]["value"] == "{{org}}"
 
-    # a non-list shape is treated as absent — a removal leaves it alone
+    # a genuinely non-list shape fails loudly — never silently discarded
     g = tmp_path / "R2.yml"
     g.write_text(textwrap.dedent("""\
         info: {name: R2, type: http}
@@ -1054,9 +1054,10 @@ def test_patch_tolerates_null_and_nonlist_sections(tmp_path):
           url: "{{baseUrl}}/x/"
           headers: oops
         """))
-    patch_request_file(g, [
-        {"key": "header.X-Old", "change": "removed", "data": None}])
-    assert _yaml.load(g.read_text())["http"]["headers"] == "oops"
+    with pytest.raises(TypeError):
+        patch_request_file(g, [
+            {"key": "header.X-Old", "change": "removed", "data": None}])
+    assert _yaml.load(g.read_text())["http"]["headers"] == "oops"  # untouched
 
 
 def test_plan_roundtrips_conventions(coll, tmp_path):
