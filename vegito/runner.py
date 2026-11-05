@@ -33,6 +33,11 @@ def execute_plan(root: Path, plan: dict, ops: list[dict], reqs: list[dict],
               and i.get("action", "archive") in ("archive", "delete")}
     conventions = collection_conventions(
         [r for r in reqs if r["rel"] not in doomed])
+    planned_conv = plan.get("conventions")
+    if planned_conv is not None and planned_conv != conventions:
+        report["notes"].append(
+            "plan conventions differ from the re-vote over the final "
+            "survivor set — the re-vote was used")
 
     # --- added endpoints ---
     for item in plan.get("added", []):

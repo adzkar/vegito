@@ -634,6 +634,22 @@ def test_execute_plan_revotes_conventions_for_kept(coll):
     assert doc["http"]["auth"]["type"] == "basic"
 
 
+def test_execute_plan_notes_conventions_divergence(coll):
+    """An edited/stale plan-snapshot convention produces a report note."""
+    root, _, v2 = coll
+    ops, reqs, cs = _changeset(v2, root)
+    plan = changeset_to_plan(cs, str(v2), root)
+    plan["conventions"]["auth"]["config"]["token"] = "{{edited}}"
+    for item in plan["added"]:
+        item["folder"] = item["folder"] or "demo/Widgets"
+    manifest = load_manifest(root)
+    report = execute_plan(root, plan, ops, reqs, manifest)
+    assert any("re-vote" in n for n in report["notes"])
+    doc = _yaml.load(
+        (root / "demo/Widgets/demo_widgets_create.yml").read_text())
+    assert doc["http"]["auth"]["token"] == "{{token}}"  # re-vote, not edit
+
+
 def test_execute_plan_tolerates_malformed_removed_entry(coll):
     """A removed entry without 'file' degrades to an errors row."""
     root, _, v2 = coll
