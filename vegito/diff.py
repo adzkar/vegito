@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from pathlib import Path
 
 from .collection import collection_conventions, collection_proposals, env_var_names
 from .common import _PARAM_RE, fingerprint, path_segments
@@ -261,7 +262,7 @@ def _sig_for_diff(d: dict, op: dict) -> str:
 
 def build_changeset(ops: list[dict], reqs: list[dict],
                     manifest: dict | None,
-                    root=None) -> dict:
+                    root: str | Path | None = None) -> dict:
     """Match operations to requests and produce added/removed/changed lists.
 
     Each diff gets ``skipped: True`` when the manifest records the user
