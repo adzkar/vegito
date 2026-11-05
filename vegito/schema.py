@@ -126,7 +126,8 @@ def parse_operations(doc: dict) -> list[dict]:
         if not isinstance(path_item, dict):
             continue
         for method, raw_op in path_item.items():
-            if method.lower() not in _METHODS or not isinstance(raw_op, dict):
+            if str(method).lower() not in _METHODS \
+                    or not isinstance(raw_op, dict):
                 continue
             op = raw_op
             path_params, query, headers = _params(op, path_item, components)

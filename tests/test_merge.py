@@ -966,6 +966,13 @@ def test_execute_plan_skip_records_reviewed_convention_sig(tmp_path):
         {"k": "header.X-Org-Key", "v": reviewed, "c": "convention"})
 
 
+def test_parse_operations_skips_nonstring_method_keys():
+    """A non-string method key (e.g. YAML `123:`) is skipped, not crashed."""
+    doc = {"paths": {"/x/": {123: {"operationId": "y"},
+                             "get": {"operationId": "x", "responses": {}}}}}
+    assert [o["operation_id"] for o in parse_operations(doc)] == ["x"]
+
+
 def test_conventions_modal_min2():
     """Modal header value/auth config wins only with >=2 uses."""
     from vegito.collection import collection_conventions
