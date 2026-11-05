@@ -121,7 +121,8 @@ def execute_plan(root: Path, plan: dict, ops: list[dict], reqs: list[dict],
                           if isinstance(item.get("diffs"), list) else [])
                 if isinstance(d, dict) and d.get("action") == "skip"}
     retarget_convention_diffs(plan)
-    if planned_conv is not None and planned_conv != conventions:
+    if planned_conv is not None \
+            and _conv_semantic(planned_conv) != _conv_semantic(conventions):
         report["notes"].append(
             "plan conventions differ from the applied set — "
             f"{conv_source} applied")
@@ -248,6 +249,21 @@ def _plan_items(plan: dict, key: str, report: dict) -> list:
         report["errors"].append(
             f"{key}: expected a list, got {type(v).__name__}")
     return []
+
+
+def _conv_semantic(conv) -> dict:
+    """Value-level content of a conventions map for the divergence
+    compare — vote counts and name/proposed metadata don't constitute
+    a change the user needs a note about."""
+    conv = conv if isinstance(conv, dict) else {}
+    headers = conv.get("headers")
+    auth = conv.get("auth")
+    return {
+        "headers": {k: c.get("value") for k, c in headers.items()
+                    if isinstance(c, dict)}
+                   if isinstance(headers, dict) else {},
+        "auth": auth.get("config") if isinstance(auth, dict) else None,
+    }
 
 
 def _plan_label(item) -> str:

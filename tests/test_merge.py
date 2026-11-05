@@ -960,6 +960,24 @@ def test_execute_plan_skipped_added_does_not_gate_proposals(tmp_path):
     assert conv["x-keep-hdr"]["proposed"]  # the added one still does
 
 
+def test_execute_plan_no_note_on_count_only_divergence(tmp_path):
+    """A plan snapshot differing only in vote counts doesn't trigger
+    the divergence note — the note compares values, not metadata."""
+    root = tmp_path / "coll"
+    root.mkdir()
+    op = _op_with_header()
+    reqs = _blank_reqs()
+    for r in reqs:
+        r["headers"]["x-org-key"]["value"] = "{{org}}"
+    plan = {"added": [], "removed": [], "moved": [], "changed": [],
+            "conventions": {"headers": {"x-org-key":
+                                        {"name": "X-Org-Key",
+                                         "value": "{{org}}", "count": 9}},
+                            "auth": None}}
+    report = execute_plan(root, plan, [op], reqs, load_manifest(root))
+    assert not any("differ" in n for n in report["notes"])
+
+
 def test_execute_plan_regenerate_honors_declined_proposals(tmp_path):
     """The apply-side regeneration path honors declined_proposals — a
     legacy plan lacking the block must not write declined vars."""
