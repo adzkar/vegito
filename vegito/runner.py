@@ -42,29 +42,43 @@ def execute_plan(root: Path, plan: dict, ops: list[dict], reqs: list[dict],
     conventions["headers"] = {k: v for k, v in
                               conventions["headers"].items()
                               if k in live_headers}
-    conv_source = "the survivor re-vote"
-    if not conventions["headers"] and not conventions["auth"]:
+    sources = ["the survivor re-vote"] \
+        if conventions["headers"] or conventions["auth"] else []
+    if not conventions["headers"] or not conventions["auth"]:
         # Only the block's proposed entries are honored — their named vars
-        # can't be re-derived. Inferred entries are a stale snapshot whose
-        # voters may have left the survivor set.
+        # can't be re-derived — and only on a side the re-vote didn't win
+        # (a proposed header loses to a live header vote). Entries lacking
+        # a usable value/config are malformed, not proposals.
         block = planned_conv if isinstance(planned_conv, dict) else {}
         proposed = {
             "headers": {k: c for k, c in (block.get("headers") or {}).items()
-                        if isinstance(c, dict) and c.get("proposed")},
+                        if isinstance(c, dict) and c.get("proposed")
+                        and c.get("value")},
             "auth": block.get("auth")
             if isinstance(block.get("auth"), dict)
-            and block["auth"].get("proposed") else None,
+            and block["auth"].get("proposed")
+            and isinstance(block["auth"].get("config"), dict) else None,
         }
         if proposed["headers"] or proposed["auth"]:
-            conventions = proposed
-            conv_source = "the honored proposal block"
+            honored = False
+            if not conventions["headers"] and proposed["headers"]:
+                conventions["headers"] = proposed["headers"]
+                honored = True
+            if not conventions["auth"] and proposed["auth"]:
+                conventions["auth"] = proposed["auth"]
+                honored = True
+            if honored:
+                sources.append("the honored proposal block")
         elif isinstance(planned_conv, dict) \
                 and not block.get("headers") and not block.get("auth"):
             # A block present but emptied is the decline signal — the
-            # user blanked every proposal; keep it dead.
-            conventions = {"headers": {}, "auth": None}
-            conv_source = "the emptied block"
-        else:
+            # user blanked every proposal; keep dead sides dead.
+            if not conventions["headers"]:
+                conventions["headers"] = {}
+            if not conventions["auth"]:
+                conventions["auth"] = None
+            sources.append("the emptied block")
+        elif not conventions["headers"] and not conventions["auth"]:
             # Absent/legacy block or a stale inferred snapshot —
             # regenerate. Same 'declared' gate build_changeset uses — a
             # header no surviving or added op declares can't consume one.
@@ -77,7 +91,8 @@ def execute_plan(root: Path, plan: dict, ops: list[dict], reqs: list[dict],
                 for lname in (a.get("operation") or {}).get("headers", {})}
             conventions = collection_proposals(
                 survivors, env_var_names(root), declared)
-            conv_source = "regenerated proposals"
+            sources.append("regenerated proposals")
+    conv_source = " + ".join(sources) or "the survivor re-vote"
     plan["conventions"] = conventions
     retarget_convention_diffs(plan)
     if planned_conv is not None and planned_conv != conventions:

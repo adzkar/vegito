@@ -832,6 +832,37 @@ def test_execute_plan_tolerates_malformed_changed_via_retarget(coll):
     assert (root / "demo/Widgets/demo_widgets_create.yml").exists()
 
 
+def test_execute_plan_honors_proposed_per_side(tmp_path):
+    """A live re-vote winning headers must not discard the block's
+    reviewed auth proposal — proposed entries are honored per side."""
+    root = tmp_path / "coll"
+    root.mkdir()
+    matched = _op_with_header()
+    added = dict(_op_with_header(), operation_id="y", path="/y/",
+                 norm="/y")
+    reqs = _blank_reqs()
+    for r in reqs:
+        r["headers"]["x-org-key"]["value"] = "v1"  # live header convention
+    plan = {"added": [{"operation": added, "action": "add", "folder": "f",
+                       "name": "y"}],
+            "removed": [], "moved": [], "changed": [],
+            "conventions": {
+                "headers": {"x-org-key": {"name": "X-Org-Key",
+                                          "value": "{{named}}",
+                                          "count": 2, "proposed": True}},
+                "auth": {"config": {"type": "bearer",
+                                    "token": "{{mytok}}"},
+                         "count": 2, "proposed": True}}}
+    report = execute_plan(root, plan, [matched, added], reqs,
+                          load_manifest(root))
+    assert not report["errors"], report["errors"]
+    conv = plan["conventions"]
+    assert conv["headers"]["x-org-key"]["value"] == "v1"  # re-vote wins
+    assert conv["auth"]["config"]["token"] == "{{mytok}}"  # proposed honored
+    text = (root / "f/y.yml").read_text()
+    assert "{{mytok}}" in text
+
+
 def test_conventions_modal_min2():
     """Modal header value/auth config wins only with >=2 uses."""
     from vegito.collection import collection_conventions
