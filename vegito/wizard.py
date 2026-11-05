@@ -263,15 +263,17 @@ def run(schema: str | None = None, collection: str | None = None):
         dirs = list_dirs(root)
 
     console.print(f"\n{len(ops)} operations in schema · "
-                  f"{len(reqs)} requests in collection\n"
-                  f"{_summary_line(changeset)}")
+                  f"{len(reqs)} requests in collection\n")
 
     conv = changeset.get("conventions") or {}
     if not _name_proposals(conv):
         console.print("[dim]Aborted — nothing was changed.[/]")
         return
+    # Declines/renames can drop or rewrite diffs — summarize after retarget
+    # so Δ/skipped counts reflect the pruned changeset.
     retarget_convention_diffs(changeset)
 
+    console.print(_summary_line(changeset))
     conv_line = format_conventions(changeset.get("conventions"))
     if conv_line:
         console.print(f"[dim]conventions: {escape(str(conv_line))}[/]")

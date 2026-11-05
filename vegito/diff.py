@@ -140,6 +140,10 @@ def retarget_convention_diffs(container: dict) -> None:
         item["diffs"] = diffs
     container["changed"] = [i for i in container.get("changed") or []
                             if i["diffs"]]
+    if "skipped_count" in container:
+        container["skipped_count"] = sum(
+            1 for i in container["changed"] for d in i["diffs"]
+            if d.get("skipped"))
 
 
 def diff_endpoint(op: dict, req: dict, prev: dict | None = None,

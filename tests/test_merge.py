@@ -1358,6 +1358,27 @@ def test_retarget_resyncs_added_header_convention():
     assert d["detail"] == "header 'X-K' added"
 
 
+def test_retarget_recounts_skipped_diffs():
+    """Diffs retarget drops no longer inflate skipped_count."""
+    from vegito.diff import retarget_convention_diffs
+    container = {
+        "skipped_count": 2,
+        "conventions": {"headers": {"x-k": {"name": "X-K", "value": "{{a}}",
+                                           "count": 2}},
+                        "auth": None},
+        "changed": [{"diffs": [
+            {"key": "header.X-K", "change": "convention", "action": "skip",
+             "skipped": True, "detail": "d",
+             "data": {"name": "X-K", "value": "{{a}}"}},
+            {"key": "docs", "change": "modified", "action": "apply",
+             "skipped": True, "detail": "d", "data": "x"}]}],
+    }
+    del container["conventions"]["headers"]["x-k"]
+    retarget_convention_diffs(container)
+    assert [d["key"] for d in container["changed"][0]["diffs"]] == ["docs"]
+    assert container["skipped_count"] == 1
+
+
 def test_var_ref_normalizes_and_validates():
     """Proposal answers wrap to {{var}}; malformed input is rejected."""
     from vegito.wizard import _var_ref
