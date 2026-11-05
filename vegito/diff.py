@@ -358,9 +358,15 @@ def build_changeset(ops: list[dict], reqs: list[dict],
         removed.append({"request": req, "action": "archive"})
 
     # Vote over requests that survive the merge — a file about to be archived
-    # would set a convention that evaporates with it.
+    # would set a convention that evaporates with it. Conventions for
+    # headers the schema no longer declares are inert (no diff or skeleton
+    # can ever use them), so the surfaced block keeps only live headers.
     survivors = [r for r in reqs if id(r) not in removed_ids]
     conventions = collection_conventions(survivors)
+    live_headers = {h for o in ops for h in o["headers"]}
+    conventions["headers"] = {k: v for k, v in
+                              conventions["headers"].items()
+                              if k in live_headers}
     if root is not None and not conventions["headers"] \
             and not conventions["auth"]:
         # Only headers an op declares can be consumed — matched ops emit

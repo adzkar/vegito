@@ -29,28 +29,34 @@ def execute_plan(root: Path, plan: dict, ops: list[dict], reqs: list[dict],
     # entry flipped to keep rejoins the vote. The plan's serialized
     # conventions block is a changeset-time snapshot: inferred values are
     # re-derived, but proposals keep their reviewed/named vars.
-    doomed = {i["file"] for i in plan.get("removed", [])
-              if i.get("action", "archive") in ("archive", "delete")}
+    doomed = {i.get("file") for i in plan.get("removed", [])
+              if isinstance(i, dict)
+              and i.get("action", "archive") in ("archive", "delete")}
     survivors = [r for r in reqs if r["rel"] not in doomed]
+    planned_conv = plan.get("conventions")
     conventions = collection_conventions(survivors)
+    conv_source = "the survivor re-vote"
     if not conventions["headers"] and not conventions["auth"]:
         # Only the block's proposed entries are honored — their named vars
         # can't be re-derived. Inferred entries are a stale snapshot whose
         # voters may have left the survivor set.
-        block = plan.get("conventions") or {}
+        block = planned_conv if isinstance(planned_conv, dict) else {}
         proposed = {
             "headers": {k: c for k, c in (block.get("headers") or {}).items()
-                        if c.get("proposed")},
+                        if isinstance(c, dict) and c.get("proposed")},
             "auth": block.get("auth")
-            if (block.get("auth") or {}).get("proposed") else None,
+            if isinstance(block.get("auth"), dict)
+            and block["auth"].get("proposed") else None,
         }
         if proposed["headers"] or proposed["auth"]:
             conventions = proposed
-        elif plan.get("conventions") is not None \
+            conv_source = "the honored proposal block"
+        elif isinstance(planned_conv, dict) \
                 and not block.get("headers") and not block.get("auth"):
             # A block present but emptied is the decline signal — the
             # user blanked every proposal; keep it dead.
             conventions = {"headers": {}, "auth": None}
+            conv_source = "the emptied block"
         else:
             # Absent/legacy block or a stale inferred snapshot —
             # regenerate. Same 'declared' gate build_changeset uses — a
@@ -64,8 +70,13 @@ def execute_plan(root: Path, plan: dict, ops: list[dict], reqs: list[dict],
                 for lname in (a.get("operation") or {}).get("headers", {})}
             conventions = collection_proposals(
                 survivors, env_var_names(root), declared)
+            conv_source = "regenerated proposals"
     plan["conventions"] = conventions
     retarget_convention_diffs(plan)
+    if planned_conv is not None and planned_conv != conventions:
+        report["notes"].append(
+            "plan conventions differ from the applied set — "
+            f"{conv_source} applied")
 
     # --- added endpoints ---
     for item in plan.get("added", []):
@@ -85,10 +96,10 @@ def execute_plan(root: Path, plan: dict, ops: list[dict], reqs: list[dict],
 
     # --- removed endpoints ---
     for item in plan.get("removed", []):
-        rel = item["file"]
-        action = item.get("action", "archive")
-        label = _ep(item["method"], item["path"])
         try:
+            rel = item["file"]
+            action = item.get("action", "archive")
+            label = _ep(item["method"], item["path"])
             if action == "archive":
                 archive_file(root, rel)
                 report["archived"].append(f"{label} — {rel}")
@@ -100,7 +111,7 @@ def execute_plan(root: Path, plan: dict, ops: list[dict], reqs: list[dict],
                     manual.append(rel)
                 report["skipped"].append(f"kept {label} — {rel} (marked manual)")
         except Exception as exc:
-            report["errors"].append(f"{action} {label} — {rel}: {exc}")
+            report["errors"].append(f"removed {_plan_label(item)}: {exc}")
 
     # --- moved endpoints ---
     for item in plan.get("moved", []):
@@ -169,6 +180,13 @@ def execute_plan(root: Path, plan: dict, ops: list[dict], reqs: list[dict],
             endpoints[key] = mf.endpoint_snapshot(op, req["rel"], {})
 
     return report
+
+
+def _plan_label(item) -> str:
+    """Best-effort label for a (possibly malformed) plan entry."""
+    if isinstance(item, dict):
+        return str(item.get("file") or item.get("path") or item)
+    return repr(item)
 
 
 def _norm_of(path: str) -> str:

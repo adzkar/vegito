@@ -722,6 +722,37 @@ def test_execute_plan_declined_block_stays_empty(tmp_path):
     assert "{{org_key}}" not in text and "{{content_type}}" not in text
 
 
+def test_execute_plan_notes_conventions_divergence(coll):
+    """An edited/stale plan-snapshot convention produces a report note."""
+    root, _, v2 = coll
+    ops, reqs, cs = _changeset(v2, root)
+    plan = changeset_to_plan(cs, str(v2), root)
+    plan["conventions"]["auth"]["config"]["token"] = "{{edited}}"
+    for item in plan["added"]:
+        item["folder"] = item["folder"] or "demo/Widgets"
+    manifest = load_manifest(root)
+    report = execute_plan(root, plan, ops, reqs, manifest)
+    assert any("re-vote" in n for n in report["notes"])
+    doc = _yaml.load(
+        (root / "demo/Widgets/demo_widgets_create.yml").read_text())
+    assert doc["http"]["auth"]["token"] == "{{token}}"  # re-vote, not edit
+
+
+def test_execute_plan_tolerates_malformed_removed_entry(coll):
+    """A removed entry without 'file' degrades to an errors row."""
+    root, _, v2 = coll
+    ops, reqs, cs = _changeset(v2, root)
+    plan = changeset_to_plan(cs, str(v2), root)
+    plan["removed"].append({"method": "get", "path": "/x/",
+                            "action": "archive"})  # no file
+    for item in plan["added"]:
+        item["folder"] = item["folder"] or "demo/Widgets"
+    manifest = load_manifest(root)
+    report = execute_plan(root, plan, ops, reqs, manifest)
+    assert report["errors"]
+    assert (root / "demo/Widgets/demo_widgets_create.yml").exists()
+
+
 def test_conventions_modal_min2():
     """Modal header value/auth config wins only with >=2 uses."""
     from vegito.collection import collection_conventions
@@ -765,6 +796,25 @@ def test_conventions_tie_break_is_deterministic():
         [req("{{a}}"), req("{{b}}"), req("{{a}}"), req("{{b}}")])
     assert forward["headers"]["x-org-key"]["value"] == \
         reverse["headers"]["x-org-key"]["value"] == "{{a}}"
+
+
+def test_dropped_header_convention_is_filtered():
+    """build_changeset surfaces only conventions the schema can use."""
+    from vegito.diff import build_changeset
+    op = {"method": "get", "norm": "/x", "path": "/x/", "operation_id": "x",
+          "path_params": [], "query": {},
+          "headers": {"x-live": {"name": "X-Live"}},
+          "body": {}, "auth_required": False, "responses": {},
+          "description": "", "tags": []}
+    req = {"method": "get", "norm": "/x", "rel": "X.yml", "name": "X",
+           "url_path": "{{baseUrl}}/x/", "path_params": [], "query": {},
+           "headers": {"x-live": {"name": "X-Live", "value": "1"},
+                       "x-dead": {"name": "X-Dead", "value": "2"}},
+           "body": {}, "docs": "", "auth": None}
+    req2 = dict(req, rel="Y.yml", name="Y")
+    cs = build_changeset([op], [req, req2], {})
+    assert "x-live" in cs["conventions"]["headers"]
+    assert "x-dead" not in cs["conventions"]["headers"]
 
 
 def test_convention_outlier_diff():
@@ -1138,7 +1188,7 @@ def test_patch_tolerates_null_and_nonlist_sections(tmp_path):
     assert ex["params"][0]["name"] == "page"
     assert doc["http"]["headers"][0]["value"] == "{{org}}"
 
-    # a non-list shape is treated as absent — a removal leaves it alone
+    # a genuinely non-list shape fails loudly — never silently discarded
     g = tmp_path / "R2.yml"
     g.write_text(textwrap.dedent("""\
         info: {name: R2, type: http}
@@ -1147,9 +1197,10 @@ def test_patch_tolerates_null_and_nonlist_sections(tmp_path):
           url: "{{baseUrl}}/x/"
           headers: oops
         """))
-    patch_request_file(g, [
-        {"key": "header.X-Old", "change": "removed", "data": None}])
-    assert _yaml.load(g.read_text())["http"]["headers"] == "oops"
+    with pytest.raises(TypeError):
+        patch_request_file(g, [
+            {"key": "header.X-Old", "change": "removed", "data": None}])
+    assert _yaml.load(g.read_text())["http"]["headers"] == "oops"  # untouched
 
 
 def test_plan_roundtrips_conventions(coll, tmp_path):

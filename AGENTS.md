@@ -130,8 +130,9 @@ Conventions observed in the target collection (replicate in `skeleton.py`):
   archive). New skeletons inherit them; requests *carrying* a deviating
   value get an opt-in `convention` diff (emits `action: skip`; the skip
   signature covers the convention value, so a modal flip resurfaces it).
-  A missing field or `auth: inherit` is never flagged (can't tell
-  deliberate inheritance).
+  A missing field, blank value, or `auth: inherit` is never flagged
+  (can't tell deliberate inheritance), and surfaced header conventions
+  are filtered to names the schema still declares.
 - **Cold-start proposals** (`collection_proposals`): when inference finds
   *nothing* and `build_changeset` gets a `root`, recurring header names /
   bearer auth yield `proposed: true` env-var suggestions — the wizard asks
