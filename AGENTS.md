@@ -140,10 +140,14 @@ Conventions observed in the target collection (replicate in `skeleton.py`):
   `removed` files don't get a vote (a dead convention evaporates with the
   archive). New skeletons inherit them; requests *carrying* a deviating
   value get an opt-in `convention` diff (emits `action: skip`; the skip
-  signature covers the convention value, so a modal flip resurfaces it).
-  A missing field, blank value, or `auth: inherit` is never flagged
-  (can't tell deliberate inheritance), and surfaced header conventions
-  are filtered to names the schema still declares.
+  signature covers the convention value, so a modal flip resurfaces it —
+  a serialized plan `action: skip` records the sig of the *reviewed*
+  value, so a flip between `plan` and `apply` still resurfaces).
+  A missing field, blank header value, missing auth, or `auth: inherit`
+  is never flagged (can't tell deliberate inheritance) — a *carried*
+  auth block with empty credentials still deviates (the block exists,
+  unlike absence). Surfaced header conventions are filtered to names
+  the schema still declares.
 - **Cold-start proposals** (`collection_proposals`): when inference finds
   *nothing* and `build_changeset` gets a `root`, recurring header names /
   bearer auth yield `proposed: true` env-var suggestions — the wizard asks
