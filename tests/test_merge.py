@@ -689,6 +689,25 @@ def test_conventions_tie_break_is_deterministic():
         reverse["headers"]["x-org-key"]["value"] == "{{a}}"
 
 
+def test_dropped_header_convention_is_filtered():
+    """build_changeset surfaces only conventions the schema can use."""
+    from vegito.diff import build_changeset
+    op = {"method": "get", "norm": "/x", "path": "/x/", "operation_id": "x",
+          "path_params": [], "query": {},
+          "headers": {"x-live": {"name": "X-Live"}},
+          "body": {}, "auth_required": False, "responses": {},
+          "description": "", "tags": []}
+    req = {"method": "get", "norm": "/x", "rel": "X.yml", "name": "X",
+           "url_path": "{{baseUrl}}/x/", "path_params": [], "query": {},
+           "headers": {"x-live": {"name": "X-Live", "value": "1"},
+                       "x-dead": {"name": "X-Dead", "value": "2"}},
+           "body": {}, "docs": "", "auth": None}
+    req2 = dict(req, rel="Y.yml", name="Y")
+    cs = build_changeset([op], [req, req2], {})
+    assert "x-live" in cs["conventions"]["headers"]
+    assert "x-dead" not in cs["conventions"]["headers"]
+
+
 def test_convention_outlier_diff():
     """Requests deviating from the convention get a 'convention' diff."""
     from vegito.diff import diff_endpoint

@@ -123,8 +123,9 @@ Conventions observed in the target collection (replicate in `skeleton.py`):
   archive). New skeletons inherit them; requests *carrying* a deviating
   value get an opt-in `convention` diff (emits `action: skip`; the skip
   signature covers the convention value, so a modal flip resurfaces it).
-  A missing field or `auth: inherit` is never flagged (can't tell
-  deliberate inheritance).
+  A missing field, blank value, or `auth: inherit` is never flagged
+  (can't tell deliberate inheritance), and surfaced header conventions
+  are filtered to names the schema still declares.
 - `data: |-` literal blocks: no trailing newline in `LiteralScalarString`,
   or ruamel emits `data: |` instead.
 - **Hand-emitted scalars** (`skeleton.py` `_yaml_scalar`) must round-trip as
