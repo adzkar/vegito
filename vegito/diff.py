@@ -398,6 +398,17 @@ def build_changeset(ops: list[dict], reqs: list[dict],
         declared |= {lname for a in added for lname in a["operation"]["headers"]}
         conventions = collection_proposals(survivors, env_var_names(root),
                                            declared)
+        # Declines the wizard recorded stay declined — a cold collection
+        # re-derives the same suggestions every run otherwise. The sig
+        # covers the proposed value, so a renamed var re-asks.
+        declined = set(manifest.get("declined_proposals") or [])
+        if declined:
+            conventions["headers"] = {
+                k: c for k, c in conventions["headers"].items()
+                if f"header:{k}:{c.get('value')}" not in declined}
+            a = conventions.get("auth")
+            if a and f"auth:{fingerprint(a.get('config'))}" in declined:
+                conventions["auth"] = None
 
     for op, req in matched:
         state_key = f"{op['method']} {op['norm']}"

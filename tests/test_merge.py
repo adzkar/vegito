@@ -863,6 +863,28 @@ def test_execute_plan_honors_proposed_per_side(tmp_path):
     assert "{{mytok}}" in text
 
 
+def test_declined_proposals_do_not_resurface(tmp_path):
+    """A declined proposal's signature in the manifest filters it out of
+    regenerated cold-start proposals; a renamed var re-asks."""
+    from vegito.collection import collection_proposals
+    from vegito.common import fingerprint
+    root = tmp_path / "coll"
+    root.mkdir()
+    op = _op_with_header()
+    reqs = _blank_reqs()
+    prop = collection_proposals(reqs, set(), {"x-org-key"})
+    h_sig = "header:x-org-key:" + prop["headers"]["x-org-key"]["value"]
+    a_sig = "auth:" + fingerprint(prop["auth"]["config"])
+    cs = build_changeset([op], reqs,
+                         {"declined_proposals": [h_sig, a_sig]}, root)
+    assert cs["conventions"]["headers"] == {}
+    assert cs["conventions"]["auth"] is None
+    cs = build_changeset([op], reqs,
+                         {"declined_proposals":
+                          ["header:x-org-key:{{other}}"]}, root)
+    assert "x-org-key" in cs["conventions"]["headers"]
+
+
 def test_conventions_modal_min2():
     """Modal header value/auth config wins only with >=2 uses."""
     from vegito.collection import collection_conventions

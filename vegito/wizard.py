@@ -17,6 +17,7 @@ from .collection import (
     list_dirs,
     scan_collection,
 )
+from .common import fingerprint
 from .diff import build_changeset, retarget_convention_diffs
 from .planfile import changeset_to_plan
 from .runner import execute_plan, render_report, write_report
@@ -203,17 +204,20 @@ def _valid_var(answer: str) -> bool | str:
             or "enter a var name or {{var}} reference")
 
 
-def _name_proposals(conv: dict) -> bool:
+def _name_proposals(conv: dict) -> tuple[bool, set[str]]:
     """Prompt for env-var names on cold-start proposals.
 
     Accepting keeps the proposal (with the typed name); a blank answer
-    drops it. Returns False when the user cancels (abort the run).
+    drops it and records its signature so the same suggestion is not
+    re-asked next run. Returns ``(ok, declined_sigs)`` — ok is False
+    when the user cancels (abort the run).
     """
     headers = conv.get("headers")
     auth = conv.get("auth") or {}
+    declined: set[str] = set()
     if not any(c.get("proposed") for c in (headers or {}).values()) \
             and not auth.get("proposed"):
-        return True
+        return True, declined
     console.print("[bold]Proposed conventions[/] — enter an env var, "
                   "blank to skip:")
     for lname, c in list((headers or {}).items()):
@@ -223,10 +227,11 @@ def _name_proposals(conv: dict) -> bool:
                                   default=c["value"],
                                   validate=_valid_var).ask()
         if answer is None:
-            return False
+            return False, declined
         answer = answer.strip()
         if not answer:
             del headers[lname]
+            declined.add(f"header:{lname}:{c.get('value')}")
         else:
             c["value"] = _var_ref(answer)
     if auth.get("proposed"):
@@ -235,13 +240,14 @@ def _name_proposals(conv: dict) -> bool:
             default=auth["config"].get("token", "{{token}}"),
             validate=_valid_var).ask()
         if answer is None:
-            return False
+            return False, declined
         answer = answer.strip()
         if not answer:
             conv["auth"] = None
+            declined.add(f"auth:{fingerprint(auth['config'])}")
         else:
             auth["config"]["token"] = _var_ref(answer)
-    return True
+    return True, declined
 
 
 def run(schema: str | None = None, collection: str | None = None):
@@ -266,9 +272,15 @@ def run(schema: str | None = None, collection: str | None = None):
                   f"{len(reqs)} requests in collection\n")
 
     conv = changeset.get("conventions") or {}
-    if not _name_proposals(conv):
+    ok, declined = _name_proposals(conv)
+    if not ok:
         console.print("[dim]Aborted — nothing was changed.[/]")
         return
+    if declined:
+        # Remember declines — a cold collection re-proposes every run
+        # until real votes exist.
+        prev = set(manifest.get("declined_proposals") or [])
+        manifest["declined_proposals"] = sorted(prev | declined)
     # Declines/renames can drop or rewrite diffs — summarize after retarget
     # so Δ/skipped counts reflect the pruned changeset.
     retarget_convention_diffs(changeset)
