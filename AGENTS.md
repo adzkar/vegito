@@ -69,8 +69,11 @@ Plan action vocabulary:
   final survivor set, so a `removed` entry flipped to `keep` rejoins.
   Only the block's `proposed` entries are honored verbatim — inferred
   entries are always re-derived, so a stale snapshot can't revive a dead
-  convention. Entries marked `proposed: true` are cold-start suggestions,
-  not votes — `count` is then the number of requests carrying the field.
+  convention. An emptied block (`{headers: {}, auth: null}`) is the
+  decline signal — apply keeps it dead instead of regenerating; an absent
+  block regenerates (legacy plans). Entries marked `proposed: true` are
+  cold-start suggestions, not votes — `count` is then the number of
+  requests carrying the field.
 
 ## Domain primer (opencollection format)
 

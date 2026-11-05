@@ -701,6 +701,27 @@ def test_execute_plan_honors_proposed_block(tmp_path):
     assert "{{named}}" in text and "{{mytok}}" in text
 
 
+def test_execute_plan_declined_block_stays_empty(tmp_path):
+    """An emptied conventions block is the total-decline signal — apply
+    must not regenerate the proposals the user refused."""
+    root = tmp_path / "coll"
+    root.mkdir()
+    matched = _op_with_header()
+    added = dict(_op_with_header(), operation_id="y", path="/y/",
+                 norm="/y")
+    plan = {"added": [{"operation": added, "action": "add", "folder": "f",
+                       "name": "y"}],
+            "removed": [], "moved": [], "changed": [],
+            "conventions": {"headers": {}, "auth": None}}
+    report = execute_plan(root, plan, [matched, added], _blank_reqs(),
+                          load_manifest(root))
+    assert not report["errors"], report["errors"]
+    conv = plan["conventions"]
+    assert conv["headers"] == {} and conv["auth"] is None
+    text = (root / "f/y.yml").read_text()
+    assert "{{org_key}}" not in text and "{{content_type}}" not in text
+
+
 def test_conventions_modal_min2():
     """Modal header value/auth config wins only with >=2 uses."""
     from vegito.collection import collection_conventions

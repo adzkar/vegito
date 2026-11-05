@@ -46,9 +46,15 @@ def execute_plan(root: Path, plan: dict, ops: list[dict], reqs: list[dict],
         }
         if proposed["headers"] or proposed["auth"]:
             conventions = proposed
+        elif plan.get("conventions") is not None \
+                and not block.get("headers") and not block.get("auth"):
+            # A block present but emptied is the decline signal — the
+            # user blanked every proposal; keep it dead.
+            conventions = {"headers": {}, "auth": None}
         else:
-            # Same 'declared' gate build_changeset uses — a header no
-            # surviving or added op declares can't consume a proposal.
+            # Absent/legacy block or a stale inferred snapshot —
+            # regenerate. Same 'declared' gate build_changeset uses — a
+            # header no surviving or added op declares can't consume one.
             declared = {
                 lname for r in survivors
                 for lname in (op_by_key.get((r["method"], r["norm"]))
