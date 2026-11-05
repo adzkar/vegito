@@ -148,6 +148,7 @@ def execute_plan(root: Path, plan: dict, ops: list[dict], reqs: list[dict],
     for item in removed_items:
         try:
             rel = item["file"]
+            _within_root(root, rel)
             action = item.get("action", "archive")
             label = _ep(item["method"], item["path"])
             if action == "archive":
@@ -174,7 +175,7 @@ def execute_plan(root: Path, plan: dict, ops: list[dict], reqs: list[dict],
                     f"{op['path']} (moved)")
                 continue
             rel = item["file"]
-            path = root / rel
+            path = _within_root(root, rel)
             _patch_req_block_url(path, op)
             endpoints.pop(item.get("previous_key"), None)
             endpoints[new_key] = mf.endpoint_snapshot(op, rel, {})
@@ -191,6 +192,7 @@ def execute_plan(root: Path, plan: dict, ops: list[dict], reqs: list[dict],
             rel = item["file"]
             state_key = item.get("state_key") or \
                 f"{item['method']} {_norm_of(item['path'])}"
+            _within_root(root, rel)
             label = _ep(item["method"], item["path"])
             apply_diffs = [d for d in item["diffs"]
                            if d.get("action") == "apply"]
@@ -264,6 +266,18 @@ def _conv_semantic(conv) -> dict:
                    if isinstance(headers, dict) else {},
         "auth": auth.get("config") if isinstance(auth, dict) else None,
     }
+
+
+def _within_root(root: Path, rel: str) -> Path:
+    """Resolve a plan's file path under the collection root — a `..` or
+    absolute path in a hand-edited plan must not reach outside it (the
+    `folder` guard in create_request, applied to existing files)."""
+    p = (root / str(rel)).resolve()
+    try:
+        p.relative_to(root)
+    except ValueError:
+        raise ValueError(f"file path escapes the collection: {rel}")
+    return p
 
 
 def _plan_label(item) -> str:

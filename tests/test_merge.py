@@ -772,6 +772,25 @@ def test_execute_plan_no_spurious_conventions_note(coll):
     assert not any("differ" in n for n in report["notes"])
 
 
+def test_execute_plan_rejects_out_of_root_file_paths(tmp_path):
+    """A `..` or absolute file path in a hand-edited plan must not touch
+    files outside the collection — it degrades to an errors row."""
+    root = tmp_path / "coll"
+    root.mkdir()
+    outside = tmp_path / "outside.yml"
+    outside.write_text("info: {name: O, type: http}\n")
+    plan = {"added": [], "moved": [],
+            "removed": [{"file": "../outside.yml", "method": "get",
+                         "path": "/x/", "action": "delete"}],
+            "changed": [{"method": "get", "path": "/x/",
+                         "file": str(outside), "state_key": "get /x",
+                         "diffs": []}]}
+    report = execute_plan(root, plan, [_op_with_header()], [],
+                          load_manifest(root))
+    assert outside.exists()
+    assert len(report["errors"]) == 2
+
+
 def test_execute_plan_tolerates_malformed_removed_entry(coll):
     """A removed entry without 'file' degrades to an errors row."""
     root, _, v2 = coll
