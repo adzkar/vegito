@@ -1,7 +1,6 @@
 """Interactive guided flow — the default `vegito` experience."""
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 import questionary
@@ -12,6 +11,7 @@ from rich.panel import Panel
 
 from . import manifest as mf
 from .collection import (
+    VAR_NAME_RE,
     find_collection_root,
     format_conventions,
     list_dirs,
@@ -183,20 +183,18 @@ def _summary_line(changeset: dict) -> str:
                if c["skipped_count"] else ""))
 
 
-_VAR_NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
-
-
 def _var_ref(answer: str) -> str | None:
     """Normalize a proposal answer to a ``{{var}}`` reference, else ``None``.
 
     Accepts a bare name or an already-braced ``{{name}}``; stray braces or
     non-identifier input is malformed — the prompt re-asks instead of
-    writing a dead reference into files.
+    writing a dead reference into files. Shares ``VAR_NAME_RE`` with the
+    proposal generator so the tool never rejects its own suggestions.
     """
     name = answer.strip()
     if name.startswith("{{") and name.endswith("}}"):
         name = name[2:-2].strip()
-    return "{{" + name + "}}" if _VAR_NAME_RE.fullmatch(name) else None
+    return "{{" + name + "}}" if VAR_NAME_RE.fullmatch(name) else None
 
 
 def _valid_var(answer: str) -> bool | str:

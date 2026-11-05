@@ -1366,3 +1366,16 @@ def test_var_ref_normalizes_and_validates():
     assert _var_ref(" {{tok}} ") == "{{tok}}"
     for bad in ("{{tok", "x}}", "a b", "{{}}", "1st", ""):
         assert _var_ref(bad) is None
+
+
+def test_derived_var_names_satisfy_var_grammar():
+    """Proposals only emit names the wizard validator accepts — no
+    self-rejected defaults."""
+    from vegito.collection import _derive_var_name
+    from vegito.wizard import _var_ref
+    # digit-leading derivation gets a '_' prefix
+    name = _derive_var_name("X-3scale-Key", set())
+    assert name == "_3scale_key" and _var_ref(name) == "{{_3scale_key}}"
+    # a non-identifier env spelling falls back to the derived name
+    name = _derive_var_name("X-Api-Key", {"api-key"})
+    assert name == "api_key" and _var_ref(name) == "{{api_key}}"

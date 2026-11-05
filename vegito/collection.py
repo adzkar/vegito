@@ -188,20 +188,28 @@ def env_var_names(root: str | Path) -> set[str]:
     return names
 
 
+VAR_NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+
+
 def _norm_var(name: str) -> str:
     """Normalize a var/header name for matching: lowercase alnum only."""
     return re.sub(r"[^a-z0-9]", "", name.lower())
 
 
 def _derive_var_name(header: str, env_names: set[str]) -> str:
-    """Env var name for a header: matching existing env var spelling if one
-    is defined, else a snake_case derivation (leading ``x_`` stripped)."""
+    """Env var name for a header: a matching existing env spelling when one
+    is defined (and identifier-safe), else a snake_case derivation —
+    leading ``x_`` stripped, digit-leading prefixed ``_`` — that always
+    satisfies ``VAR_NAME_RE``.
+    """
     derived = re.sub(r"[^a-z0-9]+", "_", header.lower()).strip("_")
     if derived.startswith("x_"):
         derived = derived[2:]
     for v in sorted(env_names):
-        if _norm_var(v) == _norm_var(derived):
+        if _norm_var(v) == _norm_var(derived) and VAR_NAME_RE.fullmatch(v):
             return v
+    if derived[:1].isdigit():
+        derived = "_" + derived
     return derived or "value"
 
 
@@ -237,7 +245,8 @@ def collection_proposals(reqs: list[dict],
         headers[lname] = {"name": h_names[lname],
                           "value": "{{" + var + "}}",
                           "count": count, "proposed": True}
-    token = next((v for v in sorted(env_names) if _norm_var(v) == "token"),
+    token = next((v for v in sorted(env_names)
+                  if _norm_var(v) == "token" and VAR_NAME_RE.fullmatch(v)),
                  "token")
     auth = ({"config": {"type": "bearer", "token": "{{" + token + "}}"},
              "count": bearer, "proposed": True} if bearer >= 2 else None)
