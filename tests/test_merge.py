@@ -14,7 +14,7 @@ from vegito.collection import scan_collection
 from vegito.diff import build_changeset
 from vegito.manifest import load as load_manifest
 from vegito.manifest import save as save_manifest
-from vegito.planfile import changeset_to_plan
+from vegito.planfile import changeset_to_plan, load_plan, save_plan
 from vegito.runner import execute_plan
 from vegito.schema import load_schema, parse_operations
 
@@ -494,3 +494,1539 @@ def test_create_request_strips_name(coll):
     blank = create_request(root, "demo", op, "   ")
     assert blank.name == "web_get_users.yml"
     assert _yaml.load(blank.read_text())["info"]["name"] == "web_get_users"
+
+
+def _conv():
+    return {"headers": {"x-org-key": {"name": "X-Org-Key",
+                                      "value": "{{org}}", "count": 2}},
+            "auth": {"config": {"type": "bearer", "token": "{{jwt}}"},
+                     "count": 2}}
+
+
+def _op_with_header():
+    return {"operation_id": "x", "method": "get", "path": "/x/", "norm": "/x",
+            "path_params": [], "query": {},
+            "headers": {"x-org-key": {"name": "X-Org-Key"}},
+            "body": {}, "auth_required": True, "responses": {}, "tags": [],
+            "description": ""}
+
+
+def test_plan_file_inside_collection_is_not_scanned(coll):
+    """A merge-plan.yml left in the collection root must not be picked
+    up as a request — it would flag a spurious 'removed' next run."""
+    root, _, v2 = coll
+    ops, reqs, cs = _changeset(v2, root)
+    plan = changeset_to_plan(cs, str(v2), root)
+    save_plan(plan, root / "merge-plan.yml")
+    reqs = scan_collection(root)
+    assert "merge-plan.yml" not in {r["rel"] for r in reqs}
+    _, _, cs = _changeset(v2, root)
+    assert not [i["request"]["rel"] for i in cs["removed"]
+                if "merge-plan" in i["request"]["rel"]]
+
+
+def test_conventions_exclude_removed_requests(coll):
+    """Files slated for removal don't vote on the convention they vacate."""
+    root, _, v2 = coll
+    legacy = root / "legacy"
+    legacy.mkdir()
+    for i in range(3):
+        (legacy / f"old{i}.yml").write_text(textwrap.dedent(f"""\
+            info: {{name: Old{i}, type: http}}
+            http:
+              method: GET
+              url: "{{{{baseUrl}}}}/legacy/old{i}/"
+              headers:
+                - {{name: X-Org-Key, value: "{{{{old}}}}"}}
+              auth: {{type: basic, username: u, password: p}}
+            """))
+    _, _, cs = _changeset(v2, root)
+    assert len([i for i in cs["removed"]
+                if i["request"]["rel"].startswith("legacy/")]) == 3
+    conv = cs["conventions"]
+    # Live files (List, Filled) share bearer/{{token}} — the 3 doomed basic
+    # files would have outvoted them if they still had a vote.
+    assert conv["auth"]["config"]["type"] == "bearer"
+    assert "x-org-key" not in conv["headers"]
+
+
+def test_conventions_mixed_type_auth_keys():
+    """Non-string auth keys (valid YAML) can't crash convention voting."""
+    from vegito.collection import collection_conventions
+    from vegito.common import fingerprint
+    cfg = {"type": "bearer", 5: "stray", "nested": {7: "x"}}
+    conv = collection_conventions(
+        [{"headers": {}, "auth": cfg}, {"headers": {}, "auth": dict(cfg)}])
+    assert conv["auth"]["count"] == 2
+    assert fingerprint({5: "x", "a": 1}) == fingerprint({"5": "x", "a": 1})
+
+
+def test_execute_plan_fallback_excludes_removed(coll):
+    """A conventions-less legacy plan doesn't let archived files vote."""
+    root, _, v2 = coll
+    legacy = root / "legacy"
+    legacy.mkdir()
+    for i in range(3):
+        (legacy / f"old{i}.yml").write_text(textwrap.dedent(f"""\
+            info: {{name: Old{i}, type: http}}
+            http:
+              method: GET
+              url: "{{{{baseUrl}}}}/legacy/old{i}/"
+              auth: {{type: basic, username: u, password: p}}
+            """))
+    ops, reqs, cs = _changeset(v2, root)
+    plan = changeset_to_plan(cs, str(v2), root)
+    plan.pop("conventions")  # simulate a plan file from before conventions
+    for item in plan["added"]:
+        item["folder"] = item["folder"] or "demo/Widgets"
+    manifest = load_manifest(root)
+    report = execute_plan(root, plan, ops, reqs, manifest)
+    assert not report["errors"], report["errors"]
+    doc = _yaml.load(
+        (root / "demo/Widgets/demo_widgets_create.yml").read_text())
+    # 3 doomed basic files would outvote the 2 live bearer ones if counted
+    assert doc["http"]["auth"]["type"] == "bearer"
+
+
+def test_execute_plan_fallback_keepers_still_vote(coll):
+    """Removed entries kept by the plan still vote in the fallback."""
+    root, _, v2 = coll
+    legacy = root / "legacy"
+    legacy.mkdir()
+    for i in range(3):
+        (legacy / f"old{i}.yml").write_text(textwrap.dedent(f"""\
+            info: {{name: Old{i}, type: http}}
+            http:
+              method: GET
+              url: "{{{{baseUrl}}}}/legacy/old{i}/"
+              auth: {{type: basic, username: u, password: p}}
+            """))
+    ops, reqs, cs = _changeset(v2, root)
+    plan = changeset_to_plan(cs, str(v2), root)
+    plan.pop("conventions")  # legacy plan
+    for item in plan["removed"]:
+        if item["file"].startswith("legacy/"):
+            item["action"] = "keep"  # survives the merge → keeps its vote
+    for item in plan["added"]:
+        item["folder"] = item["folder"] or "demo/Widgets"
+    manifest = load_manifest(root)
+    report = execute_plan(root, plan, ops, reqs, manifest)
+    assert not report["errors"], report["errors"]
+    doc = _yaml.load(
+        (root / "demo/Widgets/demo_widgets_create.yml").read_text())
+    # 3 kept basic voters outvote the 2 live bearer files
+    assert doc["http"]["auth"]["type"] == "basic"
+    assert (root / "legacy/old0.yml").exists()
+
+
+def test_execute_plan_revotes_conventions_for_kept(coll):
+    """Plan conventions are a snapshot — kept files rejoin the vote."""
+    root, _, v2 = coll
+    legacy = root / "legacy"
+    legacy.mkdir()
+    for i in range(3):
+        (legacy / f"old{i}.yml").write_text(textwrap.dedent(f"""\
+            info: {{name: Old{i}, type: http}}
+            http:
+              method: GET
+              url: "{{{{baseUrl}}}}/legacy/old{i}/"
+              auth: {{type: basic, username: u, password: p}}
+            """))
+    ops, reqs, cs = _changeset(v2, root)
+    plan = changeset_to_plan(cs, str(v2), root)
+    assert "conventions" in plan  # serialized snapshot stays for review
+    for item in plan["removed"]:
+        if item["file"].startswith("legacy/"):
+            item["action"] = "keep"
+    for item in plan["added"]:
+        item["folder"] = item["folder"] or "demo/Widgets"
+    manifest = load_manifest(root)
+    report = execute_plan(root, plan, ops, reqs, manifest)
+    assert not report["errors"], report["errors"]
+    doc = _yaml.load(
+        (root / "demo/Widgets/demo_widgets_create.yml").read_text())
+    assert doc["http"]["auth"]["type"] == "basic"
+
+
+def _blank_reqs():
+    reqs = [_cold_req("", {"type": "bearer", "token": ""}),
+            _cold_req("", {"type": "bearer", "token": ""})]
+    for r in reqs:
+        r["headers"] = {"x-org-key": {"name": "X-Org-Key", "value": ""},
+                        "content-type": {"name": "Content-Type",
+                                         "value": ""}}
+    return reqs
+
+
+def test_execute_plan_filters_stale_inferred_block(tmp_path):
+    """The serialized conventions block is honored only for proposed
+    entries — inferred ones are a stale snapshot; regenerated proposals
+    keep the 'declared' gate."""
+    root = tmp_path / "coll"
+    root.mkdir()
+    matched = _op_with_header()   # get /x, declares x-org-key
+    added = dict(_op_with_header(), operation_id="y", path="/y/",
+                 norm="/y")
+    reqs = _blank_reqs()
+    plan = {"added": [{"operation": added, "action": "add", "folder": "f",
+                       "name": "y"}],
+            "removed": [], "moved": [], "changed": [],
+            "conventions": {
+                "headers": {"x-org-key": {"name": "X-Org-Key",
+                                          "value": "{{stale}}",
+                                          "count": 9}},
+                "auth": {"config": {"type": "bearer", "token": "{{dead}}"},
+                         "count": 9}}}
+    report = execute_plan(root, plan, [matched, added], reqs,
+                          load_manifest(root))
+    assert not report["errors"], report["errors"]
+    conv = plan["conventions"]
+    # {{stale}} was inferred (no 'proposed') — filtered, then regenerated
+    assert conv["headers"]["x-org-key"]["value"] == "{{org_key}}"
+    # content-type recurs on the files but no op declares it
+    assert "content-type" not in conv["headers"]
+    text = (root / "f/y.yml").read_text()
+    assert "{{org_key}}" in text and "{{token}}" in text
+    assert "{{stale}}" not in text and "{{dead}}" not in text
+
+
+def test_execute_plan_honors_proposed_block(tmp_path):
+    """Proposed block entries are the source of truth — the user-named
+    vars can't be re-derived and must survive apply."""
+    root = tmp_path / "coll"
+    root.mkdir()
+    matched = _op_with_header()
+    added = dict(_op_with_header(), operation_id="y", path="/y/",
+                 norm="/y")
+    plan = {"added": [{"operation": added, "action": "add", "folder": "f",
+                       "name": "y"}],
+            "removed": [], "moved": [], "changed": [],
+            "conventions": {
+                "headers": {"x-org-key": {"name": "X-Org-Key",
+                                          "value": "{{named}}",
+                                          "count": 2, "proposed": True}},
+                "auth": {"config": {"type": "bearer",
+                                    "token": "{{mytok}}"},
+                         "count": 2, "proposed": True}}}
+    report = execute_plan(root, plan, [matched, added], _blank_reqs(),
+                          load_manifest(root))
+    assert not report["errors"], report["errors"]
+    text = (root / "f/y.yml").read_text()
+    assert "{{named}}" in text and "{{mytok}}" in text
+
+
+def test_execute_plan_declined_block_stays_empty(tmp_path):
+    """An emptied conventions block is the total-decline signal — apply
+    must not regenerate the proposals the user refused."""
+    root = tmp_path / "coll"
+    root.mkdir()
+    matched = _op_with_header()
+    added = dict(_op_with_header(), operation_id="y", path="/y/",
+                 norm="/y")
+    plan = {"added": [{"operation": added, "action": "add", "folder": "f",
+                       "name": "y"}],
+            "removed": [], "moved": [], "changed": [],
+            "conventions": {"headers": {}, "auth": None}}
+    report = execute_plan(root, plan, [matched, added], _blank_reqs(),
+                          load_manifest(root))
+    assert not report["errors"], report["errors"]
+    conv = plan["conventions"]
+    assert conv["headers"] == {} and conv["auth"] is None
+    text = (root / "f/y.yml").read_text()
+    assert "{{org_key}}" not in text and "{{content_type}}" not in text
+
+
+def test_execute_plan_notes_conventions_divergence(coll):
+    """An edited/stale plan-snapshot convention produces a report note."""
+    root, _, v2 = coll
+    ops, reqs, cs = _changeset(v2, root)
+    plan = changeset_to_plan(cs, str(v2), root)
+    plan["conventions"]["auth"]["config"]["token"] = "{{edited}}"
+    for item in plan["added"]:
+        item["folder"] = item["folder"] or "demo/Widgets"
+    manifest = load_manifest(root)
+    report = execute_plan(root, plan, ops, reqs, manifest)
+    assert any("re-vote" in n for n in report["notes"])
+    doc = _yaml.load(
+        (root / "demo/Widgets/demo_widgets_create.yml").read_text())
+    assert doc["http"]["auth"]["token"] == "{{token}}"  # re-vote, not edit
+
+
+def test_execute_plan_no_spurious_conventions_note(coll):
+    """A shared hand-managed header absent from the schema must not
+    trigger the divergence note on an untouched plan."""
+    root, _, v2 = coll
+    for rel in ("demo/Widgets/List.yml", "demo/Widgets/Filled.yml"):
+        p = root / rel
+        p.write_text(p.read_text().replace(
+            'url: "{{baseUrl}}/',
+            'headers: [{name: X-Org, value: "1"}]\n          '
+            'url: "{{baseUrl}}/'))
+    ops, reqs, cs = _changeset(v2, root)
+    plan = changeset_to_plan(cs, str(v2), root)
+    for item in plan["added"]:
+        item["folder"] = item["folder"] or "demo/Widgets"
+    manifest = load_manifest(root)
+    report = execute_plan(root, plan, ops, reqs, manifest)
+    assert not report["errors"], report["errors"]
+    assert not any("differ" in n for n in report["notes"])
+
+
+def test_execute_plan_rejects_out_of_root_file_paths(tmp_path):
+    """A `..` or absolute file path in a hand-edited plan must not touch
+    files outside the collection — it degrades to an errors row."""
+    root = tmp_path / "coll"
+    root.mkdir()
+    outside = tmp_path / "outside.yml"
+    outside.write_text("info: {name: O, type: http}\n")
+    plan = {"added": [], "moved": [],
+            "removed": [{"file": "../outside.yml", "method": "get",
+                         "path": "/x/", "action": "delete"}],
+            "changed": [{"method": "get", "path": "/x/",
+                         "file": str(outside), "state_key": "get /x",
+                         "diffs": []}]}
+    report = execute_plan(root, plan, [_op_with_header()], [],
+                          load_manifest(root))
+    assert outside.exists()
+    assert len(report["errors"]) == 2
+
+
+def test_execute_plan_tolerates_malformed_removed_entry(coll):
+    """A removed entry without 'file' degrades to an errors row."""
+    root, _, v2 = coll
+    ops, reqs, cs = _changeset(v2, root)
+    plan = changeset_to_plan(cs, str(v2), root)
+    plan["removed"].append({"method": "get", "path": "/x/",
+                            "action": "archive"})  # no file
+    for item in plan["added"]:
+        item["folder"] = item["folder"] or "demo/Widgets"
+    manifest = load_manifest(root)
+    report = execute_plan(root, plan, ops, reqs, manifest)
+    assert report["errors"]
+    assert (root / "demo/Widgets/demo_widgets_create.yml").exists()
+
+
+def test_execute_plan_tolerates_malformed_moved_and_changed(coll):
+    """changed/moved entries missing keys degrade to errors rows."""
+    root, _, v2 = coll
+    ops, reqs, cs = _changeset(v2, root)
+    plan = changeset_to_plan(cs, str(v2), root)
+    plan["changed"].append({"method": "get", "path": "/x/",
+                            "diffs": []})  # no file
+    plan["moved"].append({"operation": {"method": "get", "norm": "/y",
+                                        "path": "/y/"},
+                          "action": "move"})  # no file
+    for item in plan["added"]:
+        item["folder"] = item["folder"] or "demo/Widgets"
+    manifest = load_manifest(root)
+    report = execute_plan(root, plan, ops, reqs, manifest)
+    assert len(report["errors"]) == 2
+    assert (root / "demo/Widgets/demo_widgets_create.yml").exists()
+
+
+def test_retarget_tolerates_malformed_shapes():
+    """Malformed changed items/diffs and convention entries lacking
+    value/config pass through retarget instead of crashing it."""
+    from vegito.diff import retarget_convention_diffs
+    plan = {"changed": [
+                "oops",                      # non-dict item
+                {"diffs": ["oops", {"key": "header.X"}]},  # malformed diffs
+                {"diffs": [{"change": "added", "key": "header.X-Key",
+                            "data": {"convention_value": "x"},
+                            "detail": "hdr (convention: x)"}]},
+                {"diffs": [{"change": "convention", "key": "header.X-Key"}]},
+                {"diffs": [{"change": "convention", "key": "auth"}]}],
+            "conventions": {"headers": {"x-key": {"proposed": True}},
+                            "auth": {"proposed": True}}}
+    retarget_convention_diffs(plan)
+    kept = plan["changed"]
+    assert kept[0] == "oops"
+    assert kept[1]["diffs"] == ["oops", {"key": "header.X"}]
+    # convention entry without a value is dead — the 'added' diff loses
+    # its convention payload, the 'convention' diff drops with it
+    assert kept[2]["diffs"] == [
+        {"change": "added", "key": "header.X-Key", "data": {},
+         "detail": "hdr"}]
+    assert len(kept) == 3  # items emptied by retarget are pruned
+
+
+def test_execute_plan_tolerates_malformed_changed_via_retarget(coll):
+    """A non-dict changed entry reaches the per-item error path — retarget
+    runs before the try-wrapped loops and must not crash first."""
+    root, _, v2 = coll
+    ops, reqs, cs = _changeset(v2, root)
+    plan = changeset_to_plan(cs, str(v2), root)
+    plan["changed"].append("oops")
+    for item in plan["added"]:
+        item["folder"] = item["folder"] or "demo/Widgets"
+    manifest = load_manifest(root)
+    report = execute_plan(root, plan, ops, reqs, manifest)
+    assert any("oops" in e for e in report["errors"])
+    assert (root / "demo/Widgets/demo_widgets_create.yml").exists()
+
+
+def test_execute_plan_honors_proposed_per_side(tmp_path):
+    """A live re-vote winning headers must not discard the block's
+    reviewed auth proposal — proposed entries are honored per side."""
+    root = tmp_path / "coll"
+    root.mkdir()
+    matched = _op_with_header()
+    added = dict(_op_with_header(), operation_id="y", path="/y/",
+                 norm="/y")
+    reqs = _blank_reqs()
+    for r in reqs:
+        r["headers"]["x-org-key"]["value"] = "v1"  # live header convention
+    plan = {"added": [{"operation": added, "action": "add", "folder": "f",
+                       "name": "y"}],
+            "removed": [], "moved": [], "changed": [],
+            "conventions": {
+                "headers": {"x-org-key": {"name": "X-Org-Key",
+                                          "value": "{{named}}",
+                                          "count": 2, "proposed": True}},
+                "auth": {"config": {"type": "bearer",
+                                    "token": "{{mytok}}"},
+                         "count": 2, "proposed": True}}}
+    report = execute_plan(root, plan, [matched, added], reqs,
+                          load_manifest(root))
+    assert not report["errors"], report["errors"]
+    conv = plan["conventions"]
+    assert conv["headers"]["x-org-key"]["value"] == "v1"  # re-vote wins
+    assert conv["auth"]["config"]["token"] == "{{mytok}}"  # proposed honored
+    text = (root / "f/y.yml").read_text()
+    assert "{{mytok}}" in text
+
+
+def test_declined_proposals_do_not_resurface(tmp_path):
+    """A declined proposal's signature in the manifest filters it out of
+    regenerated cold-start proposals; a renamed var re-asks."""
+    from vegito.collection import collection_proposals
+    from vegito.common import fingerprint
+    root = tmp_path / "coll"
+    root.mkdir()
+    op = _op_with_header()
+    reqs = _blank_reqs()
+    prop = collection_proposals(reqs, set(), {"x-org-key"})
+    h_sig = "header:x-org-key:" + prop["headers"]["x-org-key"]["value"]
+    a_sig = "auth:" + fingerprint(prop["auth"]["config"])
+    cs = build_changeset([op], reqs,
+                         {"declined_proposals": [h_sig, a_sig]}, root)
+    assert cs["conventions"]["headers"] == {}
+    assert cs["conventions"]["auth"] is None
+    cs = build_changeset([op], reqs,
+                         {"declined_proposals":
+                          ["header:x-org-key:{{other}}"]}, root)
+    assert "x-org-key" in cs["conventions"]["headers"]
+
+
+def test_execute_plan_tolerates_malformed_conventions_block(tmp_path):
+    """A truthy non-mapping conventions block (or headers side) degrades
+    instead of crashing apply before the per-item loops."""
+    root = tmp_path / "coll"
+    root.mkdir()
+    matched = _op_with_header()
+    added = dict(_op_with_header(), operation_id="y", path="/y/",
+                 norm="/y")
+    for i, bad in enumerate(["oops", 5, ["x"], {"headers": "oops"},
+                             {"headers": ["x"]}]):
+        plan = {"added": [{"operation": added, "action": "add",
+                           "folder": "f", "name": f"y{i}"}],
+                "removed": [], "moved": [], "changed": [],
+                "conventions": bad}
+        report = execute_plan(root, plan, [matched, added],
+                              _blank_reqs(), load_manifest(root))
+        assert not report["errors"], (bad, report["errors"])
+        assert (root / f"f/y{i}.yml").exists()
+
+
+def test_execute_plan_tolerates_malformed_plan_lists(tmp_path):
+    """Scalar/non-list plan collections and a non-iterable diffs value
+    degrade instead of crashing the pre-loop comprehensions."""
+    root = tmp_path / "coll"
+    root.mkdir()
+    matched = _op_with_header()
+    added = dict(_op_with_header(), operation_id="y", path="/y/",
+                 norm="/y")
+    plan = {"added": [{"operation": added, "action": "add", "folder": "f",
+                       "name": "y"}, "oops"],
+            "removed": "oops", "moved": 5,
+            "changed": [{"file": "r.yml", "method": "get", "path": "/x/",
+                         "diffs": 5}]}
+            # no conventions key — the regenerate path iterates added
+    report = execute_plan(root, plan, [matched, added], _blank_reqs(),
+                          load_manifest(root))
+    assert (root / "f/y.yml").exists()  # the valid added entry applied
+    errs = report["errors"]
+    assert any("removed" in e for e in errs)
+    assert any("moved" in e for e in errs)
+    assert any("oops" in e for e in errs)
+    assert any("r.yml" in e for e in errs)
+
+
+def test_execute_plan_skipped_added_does_not_gate_proposals(tmp_path):
+    """A skipped added endpoint's headers must not gate regenerated
+    proposals — nothing will consume them."""
+    root = tmp_path / "coll"
+    root.mkdir()
+    matched = _op_with_header()
+    reqs = _blank_reqs()
+    for r in reqs:
+        r["headers"].update(
+            {"x-skip-hdr": {"name": "X-Skip-Hdr", "value": ""},
+             "x-keep-hdr": {"name": "X-Keep-Hdr", "value": ""}})
+    plan = {"added": [
+                {"operation": dict(_op_with_header(), operation_id="y",
+                                   path="/y/", norm="/y",
+                                   headers={"x-skip-hdr":
+                                            {"name": "X-Skip-Hdr"}}),
+                 "action": "skip"},
+                {"operation": dict(_op_with_header(), operation_id="z",
+                                   path="/z/", norm="/z",
+                                   headers={"x-keep-hdr":
+                                            {"name": "X-Keep-Hdr"}}),
+                 "action": "add", "folder": "f", "name": "z"}],
+            "removed": [], "moved": [], "changed": []}
+    report = execute_plan(root, plan, [matched] + [
+        a["operation"] for a in plan["added"]], reqs, load_manifest(root))
+    assert not report["errors"], report["errors"]
+    conv = plan["conventions"]["headers"]
+    assert "x-skip-hdr" not in conv       # skipped op doesn't gate
+    assert conv["x-keep-hdr"]["proposed"]  # the added one still does
+
+
+def test_execute_plan_no_note_on_count_only_divergence(tmp_path):
+    """A plan snapshot differing only in vote counts doesn't trigger
+    the divergence note — the note compares values, not metadata."""
+    root = tmp_path / "coll"
+    root.mkdir()
+    op = _op_with_header()
+    reqs = _blank_reqs()
+    for r in reqs:
+        r["headers"]["x-org-key"]["value"] = "{{org}}"
+    plan = {"added": [], "removed": [], "moved": [], "changed": [],
+            "conventions": {"headers": {"x-org-key":
+                                        {"name": "X-Org-Key",
+                                         "value": "{{org}}", "count": 9}},
+                            "auth": None}}
+    report = execute_plan(root, plan, [op], reqs, load_manifest(root))
+    assert not any("differ" in n for n in report["notes"])
+
+
+def test_execute_plan_regenerate_honors_declined_proposals(tmp_path):
+    """The apply-side regeneration path honors declined_proposals — a
+    legacy plan lacking the block must not write declined vars."""
+    from vegito.collection import collection_proposals
+    from vegito.common import fingerprint
+    root = tmp_path / "coll"
+    root.mkdir()
+    matched = _op_with_header()
+    added = dict(_op_with_header(), operation_id="y", path="/y/",
+                 norm="/y")
+    reqs = _blank_reqs()
+    prop = collection_proposals(reqs, set(), {"x-org-key"})
+    manifest = load_manifest(root)
+    manifest["declined_proposals"] = [
+        "header:x-org-key:" + prop["headers"]["x-org-key"]["value"],
+        "auth:" + fingerprint(prop["auth"]["config"])]
+    plan = {"added": [{"operation": added, "action": "add", "folder": "f",
+                       "name": "y"}],
+            "removed": [], "moved": [], "changed": []}  # no conventions
+    report = execute_plan(root, plan, [matched, added], reqs, manifest)
+    assert not report["errors"], report["errors"]
+    assert plan["conventions"]["headers"] == {}
+    assert plan["conventions"]["auth"] is None
+    assert "{{org_key}}" not in (root / "f/y.yml").read_text()
+
+
+def test_execute_plan_skip_records_reviewed_convention_sig(tmp_path):
+    """A serialized action:skip records the sig of the reviewed value —
+    a modal flip between plan and apply resurfaces, not re-signs."""
+    from vegito.common import fingerprint
+    root = tmp_path / "coll"
+    root.mkdir()
+    op = _op_with_header()
+    reqs = _blank_reqs()
+    for r in reqs:
+        r["headers"]["x-org-key"]["value"] = "{{new}}"
+    reqs.append(_cold_req("", None))
+    reqs[2]["headers"] = {"x-org-key": {"name": "X-Org-Key", "value": "abc"}}
+    reviewed = {"name": "X-Org-Key", "value": "{{org}}"}
+    plan = {"added": [], "removed": [], "moved": [],
+            "changed": [{"method": "get", "path": "/x/", "file": "r.yml",
+                         "state_key": "get /x",
+                         "diffs": [{"key": "header.X-Org-Key",
+                                    "change": "convention",
+                                    "action": "skip", "detail": "…",
+                                    "data": reviewed}]}],
+            "conventions": {"headers": {"x-org-key":
+                                        {"name": "X-Org-Key",
+                                         "value": "{{org}}", "count": 2}},
+                            "auth": None}}
+    manifest = load_manifest(root)
+    report = execute_plan(root, plan, [op], reqs, manifest)
+    assert not report["errors"], report["errors"]
+    # the diff re-synced to the re-vote, but the sig covers {{org}}
+    d = plan["changed"][0]["diffs"][0]
+    assert d["data"]["value"] == "{{new}}"
+    skipped = manifest["endpoints"]["get /x"]["skipped"]
+    assert skipped["convention\x1fheader.X-Org-Key"] == fingerprint(
+        {"k": "header.X-Org-Key", "v": reviewed, "c": "convention"})
+
+
+def test_parse_operations_skips_nonstring_method_keys():
+    """A non-string method key (e.g. YAML `123:`) is skipped, not crashed."""
+    doc = {"paths": {"/x/": {123: {"operationId": "y"},
+                             "get": {"operationId": "x", "responses": {}}}}}
+    assert [o["operation_id"] for o in parse_operations(doc)] == ["x"]
+
+
+def test_conventions_modal_min2():
+    """Modal header value/auth config wins only with >=2 uses."""
+    from vegito.collection import collection_conventions
+
+    def req(hval, auth):
+        return {"headers": {"x-org-key": {"name": "X-Org-Key",
+                                          "value": hval}} if hval else {},
+                "auth": auth}
+
+    reqs = [req("{{org}}", {"type": "bearer", "token": "{{jwt}}"}),
+            req("{{org}}", {"type": "bearer", "token": "{{jwt}}"}),
+            req("abc", None)]
+    conv = collection_conventions(reqs)
+    assert conv["headers"]["x-org-key"]["value"] == "{{org}}"
+    assert conv["headers"]["x-org-key"]["count"] == 2
+    assert conv["auth"]["config"]["token"] == "{{jwt}}"
+
+    single = collection_conventions([req("{{a}}", None), req("{{b}}", None)])
+    assert single["headers"] == {}
+    blanks = collection_conventions([req("", None), req("", None)])
+    assert blanks["headers"] == {} and blanks["auth"] is None
+    # empty-credential auth configs are absence, not a convention
+    empty_auth = collection_conventions(
+        [req("", {"type": "bearer", "token": ""}),
+         req("", {"type": "bearer", "token": ""})])
+    assert empty_auth["auth"] is None
+
+
+def test_conventions_tie_break_is_deterministic():
+    """A modal-vote tie resolves lexicographically, not by scan order."""
+    from vegito.collection import collection_conventions
+
+    def req(v):
+        return {"headers": {"x-org-key": {"name": "X-Org-Key",
+                                          "value": v}},
+                "auth": None}
+
+    forward = collection_conventions(
+        [req("{{b}}"), req("{{a}}"), req("{{b}}"), req("{{a}}")])
+    reverse = collection_conventions(
+        [req("{{a}}"), req("{{b}}"), req("{{a}}"), req("{{b}}")])
+    assert forward["headers"]["x-org-key"]["value"] == \
+        reverse["headers"]["x-org-key"]["value"] == "{{a}}"
+
+
+def test_dropped_header_convention_is_filtered():
+    """build_changeset surfaces only conventions the schema can use."""
+    from vegito.diff import build_changeset
+    op = {"method": "get", "norm": "/x", "path": "/x/", "operation_id": "x",
+          "path_params": [], "query": {},
+          "headers": {"x-live": {"name": "X-Live"}},
+          "body": {}, "auth_required": False, "responses": {},
+          "description": "", "tags": []}
+    req = {"method": "get", "norm": "/x", "rel": "X.yml", "name": "X",
+           "url_path": "{{baseUrl}}/x/", "path_params": [], "query": {},
+           "headers": {"x-live": {"name": "X-Live", "value": "1"},
+                       "x-dead": {"name": "X-Dead", "value": "2"}},
+           "body": {}, "docs": "", "auth": None}
+    req2 = dict(req, rel="Y.yml", name="Y")
+    cs = build_changeset([op], [req, req2], {})
+    assert "x-live" in cs["conventions"]["headers"]
+    assert "x-dead" not in cs["conventions"]["headers"]
+
+
+def test_convention_outlier_diff():
+    """Requests deviating from the convention get a 'convention' diff."""
+    from vegito.diff import diff_endpoint
+    op, conv = _op_with_header(), _conv()
+    req = {"url_path": "{{baseUrl}}/x/", "path_params": [], "query": {},
+           "body": {}, "docs": "", "rel": "X.yml", "name": "X",
+           "method": "get", "norm": "/x",
+           "headers": {"x-org-key": {"name": "X-Org-Key", "value": "abc"}},
+           "auth": {"type": "basic", "username": "u", "password": "p"}}
+    diffs = diff_endpoint(op, req, conventions=conv)
+    conv_diffs = {d["key"]: d for d in diffs if d["change"] == "convention"}
+    assert set(conv_diffs) == {"header.X-Org-Key", "auth"}
+    assert conv_diffs["header.X-Org-Key"]["data"]["value"] == "{{org}}"
+
+    ok = dict(req, headers={"x-org-key": {"name": "X-Org-Key",
+                                          "value": "{{org}}"}},
+              auth={"type": "bearer", "token": "{{jwt}}"})
+    assert not [d for d in diff_endpoint(op, ok, conventions=conv)
+                if d["change"] == "convention"]
+
+    missing = dict(req, headers={}, auth=None)
+    ds = {d["key"]: d for d in diff_endpoint(op, missing, conventions=conv)}
+    assert ds["header.X-Org-Key"]["data"]["convention_value"] == "{{org}}"
+    assert not [d for d in ds.values() if d["change"] == "convention"]
+
+
+def test_blank_header_is_not_a_convention_outlier():
+    """A header present with an empty value is unfilled, not a deviation."""
+    from vegito.diff import diff_endpoint
+    op, conv = _op_with_header(), _conv()
+    req = {"url_path": "{{baseUrl}}/x/", "path_params": [], "query": {},
+           "body": {}, "docs": "", "rel": "X.yml", "name": "X",
+           "method": "get", "norm": "/x",
+           "headers": {"x-org-key": {"name": "X-Org-Key", "value": ""}},
+           "auth": None}
+    assert not [d for d in diff_endpoint(op, req, conventions=conv)
+                if d["change"] == "convention"]
+
+
+def test_query_param_case_mismatch_not_removed():
+    """File param 'Page' vs schema 'page' must not emit a removed diff —
+    the added check is already case-insensitive (file keys are lower)."""
+    from vegito.diff import diff_endpoint
+    op = dict(_op_with_header(),
+              query={"page": {"name": "page", "required": False,
+                              "description": "", "type": "integer"}},
+              headers={})
+    req = {"url_path": "{{baseUrl}}/x/", "path_params": [], "body": {},
+           "docs": "", "rel": "X.yml", "name": "X", "method": "get",
+           "norm": "/x", "auth": None, "headers": {},
+           "query": {"page": {"name": "Page", "value": "2",
+                              "type": "query"}}}
+    assert not [d for d in diff_endpoint(op, req)
+                if d["key"].startswith("param.query.")]
+
+
+def _deviating_collection(root):
+    """Make List.yml deviate from a 2-vote bearer convention. Returns its path."""
+    (root / "demo/Widgets/Filled2.yml").write_text(textwrap.dedent("""\
+        info: {name: Filled two, type: http}
+        http:
+          method: GET
+          url: "{{baseUrl}}/demo/widgets/9/"
+          auth: {type: bearer, token: "{{token}}"}
+        """))
+    list_yml = root / "demo/Widgets/List.yml"
+    list_yml.write_text(textwrap.dedent("""\
+        info: {name: List widgets, type: http}
+        http:
+          method: GET
+          url: "{{baseUrl}}/demo/widgets/"
+          auth: {type: basic, username: u}
+        """))
+    return list_yml
+
+
+def test_convention_diffs_are_opt_in(coll):
+    """Convention diffs default to skip — an unedited merge leaves the value."""
+    root, _, v2 = coll
+    list_yml = _deviating_collection(root)
+    ops, reqs, cs = _changeset(v2, root)
+    conv_diffs = [d for i in cs["changed"] for d in i["diffs"]
+                  if d["change"] == "convention"]
+    assert conv_diffs and all(d["action"] == "skip" for d in conv_diffs)
+
+    report = _apply_all(v2, root, ops, reqs, cs)
+    assert not report["errors"], report["errors"]
+    doc = _yaml.load(list_yml.read_text())
+    assert doc["http"]["auth"]["type"] == "basic"  # deliberately set — kept
+    # …and the default skip is remembered rather than re-flagged every run
+    _, _, cs2 = _changeset(v2, root)
+    assert not [d for i in cs2["changed"] for d in i["diffs"]
+                if d["change"] == "convention" and not d.get("skipped")]
+
+
+def test_skipped_convention_resurfaces_on_flip(coll):
+    """A convention skip expires when the modal value/config changes."""
+    root, _, v2 = coll
+    _deviating_collection(root)
+    ops, reqs, cs = _changeset(v2, root)
+    _apply_all(v2, root, ops, reqs, cs)
+
+    for name in ("Filled.yml", "Filled2.yml"):
+        (root / "demo/Widgets" / name).write_text(textwrap.dedent("""\
+            info: {name: Filled, type: http}
+            http:
+              method: GET
+              url: "{{baseUrl}}/demo/widgets/9/"
+              auth: {type: bearer, token: "{{tok2}}"}
+            """))
+    _, _, cs2 = _changeset(v2, root)
+    res = [d for i in cs2["changed"] for d in i["diffs"]
+           if d["change"] == "convention" and d["key"] == "auth"
+           and not d.get("skipped")]
+    assert res and res[0]["data"]["token"] == "{{tok2}}"
+
+
+def test_review_checkbox_maps_by_diff_index(monkeypatch):
+    """A leading note diff doesn't shift which diffs the picks land on."""
+    from vegito import wizard
+
+    class _Ask:
+        def __init__(self, result):
+            self.result = result
+
+        def ask(self):
+            return self.result
+
+    changeset = {"added": [], "removed": [], "moved": [],
+                 "changed": [{"request": {"rel": "R.yml", "name": "R"},
+                              "operation": {"method": "get", "path": "/x/"},
+                              "state_key": "get /x",
+                              "diffs": [
+                                  {"key": "body.x!required", "change": "note",
+                                   "detail": "n", "action": "note",
+                                   "data": {}},
+                                  {"key": "param.query.a", "change": "added",
+                                   "detail": "a", "action": "apply",
+                                   "data": {}},
+                                  {"key": "param.query.b", "change": "removed",
+                                   "detail": "b", "action": "apply",
+                                   "data": None}]}]}
+    monkeypatch.setattr(wizard.questionary, "checkbox",
+                        lambda *a, **k: _Ask([1]))  # check only 'a'
+    assert wizard._review(changeset, []) is True
+    a, b, c = changeset["changed"][0]["diffs"]
+    assert (a["action"], b["action"], c["action"]) == ("note", "apply", "skip")
+
+
+def test_skip_memory_scoped_by_change_kind(coll):
+    """Convention skips store under (change, key) — no cross-kind clobber."""
+    root, _, v2 = coll
+    _deviating_collection(root)
+    ops, reqs, cs = _changeset(v2, root)
+    _apply_all(v2, root, ops, reqs, cs)
+    state = load_manifest(root)["endpoints"]["get /demo/widgets"]
+    assert "convention\x1fauth" in state["skipped"]
+
+
+def test_legacy_skip_key_still_honored(coll):
+    """A skip recorded under the pre-(change,key) bare key still hides."""
+    root, _, v2 = coll
+    ops, reqs, cs = _changeset(v2, root)
+    for item in cs["changed"]:
+        for d in item["diffs"]:
+            if d["key"] == "param.query.category":
+                d["action"] = "skip"
+    _apply_all(v2, root, ops, reqs, cs)
+    # rewrite the manifest entry the way pre-composite runs stored it
+    m = load_manifest(root)
+    ep = m["endpoints"]["get /demo/widgets"]
+    ep["skipped"] = {"param.query.category":
+                     list(ep["skipped"].values())[0]}
+    save_manifest(root, m, str(v2))
+    _, _, cs2 = _changeset(v2, root)
+    assert not [d for i in cs2["changed"] for d in i["diffs"]
+                if d["key"] == "param.query.category"
+                and not d.get("skipped")]
+
+
+def test_convention_diffs_unchecked_in_review(monkeypatch):
+    """The wizard leaves convention diffs unchecked — opt-in there too."""
+    from vegito import wizard
+
+    class _Ask:
+        def __init__(self, result):
+            self.result = result
+
+        def ask(self):
+            return self.result
+
+    changeset = {"added": [], "removed": [], "moved": [],
+                 "changed": [{"request": {"rel": "R.yml", "name": "R"},
+                              "operation": {"method": "get", "path": "/x/"},
+                              "state_key": "get /x",
+                              "diffs": [
+                                  {"key": "auth", "change": "convention",
+                                   "detail": "auth differs", "action": "skip",
+                                   "data": {"type": "bearer"}},
+                                  {"key": "param.query.q", "change": "added",
+                                   "detail": "q added", "action": "apply",
+                                   "data": {}}]}]}
+    seen = {}
+
+    def fake_checkbox(_msg, choices=None):
+        seen["choices"] = choices
+        return _Ask([1])
+
+    monkeypatch.setattr(wizard.questionary, "checkbox", fake_checkbox)
+    assert wizard._review(changeset, []) is True
+    assert seen["choices"][0].checked is False
+    assert seen["choices"][1].checked is True
+    diffs = changeset["changed"][0]["diffs"]
+    assert diffs[0]["action"] == "skip" and diffs[1]["action"] == "apply"
+
+
+def test_rechecked_skip_serializes_as_apply(monkeypatch, tmp_path):
+    """Re-checking a previously skipped diff clears it → plan says apply."""
+    from vegito import wizard
+
+    class _Ask:
+        def __init__(self, result):
+            self.result = result
+
+        def ask(self):
+            return self.result
+
+    changeset = {"added": [], "removed": [], "moved": [],
+                 "changed": [{"request": {"rel": "R.yml", "name": "R"},
+                              "operation": {"method": "get", "path": "/x/",
+                                            "operation_id": "x_op"},
+                              "state_key": "get /x",
+                              "diffs": [
+                                  {"key": "param.query.a", "change": "added",
+                                   "detail": "a added", "action": "apply",
+                                   "skipped": True, "data": {}}]}]}
+    monkeypatch.setattr(wizard.questionary, "checkbox",
+                        lambda *a, **k: _Ask([0]))  # re-check it
+    assert wizard._review(changeset, []) is True
+    d = changeset["changed"][0]["diffs"][0]
+    assert d["action"] == "apply" and "skipped" not in d
+    plan = changeset_to_plan(changeset, "s.yaml", tmp_path)
+    assert plan["changed"][0]["diffs"][0]["action"] == "apply"
+
+
+def test_skeleton_tolerates_exotic_auth_values():
+    """A YAML-native auth value (datetime.date) renders via str()."""
+    import datetime
+
+    from vegito.skeleton import render_request_file
+    op = {"operation_id": "x", "method": "get", "path": "/x/", "norm": "/x",
+          "path_params": [], "query": {}, "headers": {}, "body": {},
+          "auth_required": True, "responses": {}, "tags": [],
+          "description": ""}
+    conv = {"headers": {},
+            "auth": {"config": {"type": "apikey", "key": "k",
+                                "expires": datetime.date(2025, 1, 1)},
+                     "count": 2}}
+    text = render_request_file(op, 1, None, conv)
+    assert "expires" in text
+
+
+def test_skeleton_uses_conventions():
+    """Generated file gets convention header value and auth config."""
+    from vegito.skeleton import render_request_file
+    doc = _yaml.load(render_request_file(_op_with_header(), 1,
+                                         conventions=_conv()))
+    assert doc["http"]["headers"][0]["value"] == "{{org}}"
+    assert doc["http"]["auth"] == {"type": "bearer", "token": "{{jwt}}"}
+    assert doc["examples"][0]["request"]["headers"][0]["value"] == "{{org}}"
+
+
+def test_convention_apply_updates_values(tmp_path):
+    """Applying a convention diff sets header value/auth in place."""
+    from vegito.apply import patch_request_file
+    f = tmp_path / "Req.yml"
+    f.write_text(textwrap.dedent("""\
+        info: {name: Req, type: http}
+        http:
+          method: GET
+          url: "{{baseUrl}}/x/"
+          headers:
+            - name: X-Org-Key
+              value: abc
+              description: keep me
+          auth:
+            type: basic
+            username: u
+        examples:
+          - name: 200 Response
+            request:
+              url: "{{baseUrl}}/x/"
+              method: GET
+              headers:
+                - name: X-Org-Key
+                  value: abc
+                  description: keep me
+            response: {status: 200}
+        """))
+    patch_request_file(f, [
+        {"key": "header.X-Org-Key", "change": "convention",
+         "data": {"name": "X-Org-Key", "value": "{{org}}"}},
+        {"key": "auth", "change": "convention",
+         "data": {"type": "bearer", "token": "{{jwt}}"}},
+    ])
+    doc = _yaml.load(f.read_text())
+    h = doc["http"]["headers"][0]
+    assert h["value"] == "{{org}}" and h["description"] == "keep me"
+    assert doc["http"]["auth"] == {"type": "bearer", "token": "{{jwt}}"}
+    ex = doc["examples"][0]["request"]
+    assert ex["headers"][0]["value"] == "{{org}}"
+    assert "auth" not in ex
+
+
+def test_convention_apply_patches_all_examples(tmp_path):
+    """Non-body diffs mirror onto every example block, not just the first."""
+    from vegito.apply import patch_request_file
+    f = tmp_path / "Req.yml"
+    f.write_text(textwrap.dedent("""\
+        info: {name: Req, type: http}
+        http:
+          method: GET
+          url: "{{baseUrl}}/x/"
+          headers:
+            - name: X-Org-Key
+              value: abc
+        examples:
+          - request:
+              url: "{{baseUrl}}/x/"
+              headers: [{name: X-Org-Key, value: abc}]
+            response: {status: 200}
+          - request:
+              url: "{{baseUrl}}/x/"
+              headers: [{name: X-Org-Key, value: abc}]
+            response: {status: 404}
+        """))
+    patch_request_file(f, [
+        {"key": "header.X-Org-Key", "change": "convention",
+         "data": {"name": "X-Org-Key", "value": "{{org}}"}},
+    ])
+    doc = _yaml.load(f.read_text())
+    assert [e["request"]["headers"][0]["value"] for e in doc["examples"]] == \
+        ["{{org}}", "{{org}}"]
+
+
+def test_removed_diffs_skip_missing_sections(tmp_path):
+    """Removal diffs don't materialize headers:/params: in bare blocks."""
+    from vegito.apply import patch_request_file
+    f = tmp_path / "Req.yml"
+    f.write_text(textwrap.dedent("""\
+        info: {name: Req, type: http}
+        http:
+          method: GET
+          url: "{{baseUrl}}/x/"
+          headers:
+            - name: X-Old
+              value: "1"
+          params:
+            - name: page
+              value: ""
+              type: query
+        examples:
+          - request:
+              url: "{{baseUrl}}/x/"
+            response: {status: 200}
+        """))
+    patch_request_file(f, [
+        {"key": "header.X-Old", "change": "removed", "data": None},
+        {"key": "param.query.page", "change": "removed", "data": None},
+    ])
+    doc = _yaml.load(f.read_text())
+    assert "headers" not in doc["examples"][0]["request"]
+    assert "params" not in doc["examples"][0]["request"]
+    assert not doc["http"]["headers"] and not doc["http"]["params"]
+
+
+def test_patch_tolerates_null_and_nonlist_sections(tmp_path):
+    """Bare `headers:`/`params:` stubs (null) or non-list shapes can't
+    crash patching — including the mirrored example blocks."""
+    from vegito.apply import patch_request_file
+    f = tmp_path / "Req.yml"
+    f.write_text(textwrap.dedent("""\
+        info: {name: Req, type: http}
+        http:
+          method: GET
+          url: "{{baseUrl}}/x/"
+          headers:
+        examples:
+          - request:
+              url: "{{baseUrl}}/x/"
+              headers:
+              params:
+            response: {status: 200}
+        """))
+    patch_request_file(f, [
+        {"key": "header.X-Org", "change": "convention",
+         "data": {"name": "X-Org", "value": "{{org}}"}},
+        {"key": "param.query.page", "change": "added", "data": {}},
+    ])
+    doc = _yaml.load(f.read_text())
+    ex = doc["examples"][0]["request"]
+    assert ex["headers"][0]["value"] == "{{org}}"
+    assert ex["params"][0]["name"] == "page"
+    assert doc["http"]["headers"][0]["value"] == "{{org}}"
+
+    # a genuinely non-list shape fails loudly — never silently discarded
+    g = tmp_path / "R2.yml"
+    g.write_text(textwrap.dedent("""\
+        info: {name: R2, type: http}
+        http:
+          method: GET
+          url: "{{baseUrl}}/x/"
+          headers: oops
+        """))
+    with pytest.raises(TypeError):
+        patch_request_file(g, [
+            {"key": "header.X-Old", "change": "removed", "data": None}])
+    assert _yaml.load(g.read_text())["http"]["headers"] == "oops"  # untouched
+
+
+def test_plan_roundtrips_conventions(coll, tmp_path):
+    """Plan files carry the conventions map so apply works standalone."""
+    root, _, v2 = coll
+    _, _, cs = _changeset(v2, root)
+    out = tmp_path / "p.yml"
+    save_plan(changeset_to_plan(cs, str(v2), root), out)
+    loaded = load_plan(out)
+    assert loaded["conventions"]["auth"]["config"]["token"] == "{{token}}"
+
+
+def test_plan_marks_conventions_as_snapshot(coll, tmp_path):
+    """The saved plan notes conventions are a review snapshot, re-voted."""
+    root, _, v2 = coll
+    _, _, cs = _changeset(v2, root)
+    out = tmp_path / "p.yml"
+    save_plan(changeset_to_plan(cs, str(v2), root), out)
+    assert out.read_text().startswith(
+        "# conventions is a changeset-time snapshot")
+    assert load_plan(out)["conventions"]["auth"]["config"]["token"] == \
+        "{{token}}"
+
+
+def test_plan_serializes_without_yaml_anchors(coll, tmp_path):
+    """Shared convention objects must not leak &id/*id aliases into the
+    plan — deleting the anchored entry would crash load_plan."""
+    root, _, v2 = coll
+    _deviating_collection(root)  # one auth convention diff + modal config
+    _, _, cs = _changeset(v2, root)
+    out = tmp_path / "p.yml"
+    save_plan(changeset_to_plan(cs, str(v2), root), out)
+    text = out.read_text()
+    assert "&id" not in text and "*id" not in text
+    assert load_plan(out)["conventions"]["auth"]["config"]["token"] == \
+        "{{token}}"
+
+
+def test_plan_keeps_skipped_diffs_skipped(coll):
+    """A previously skipped diff serializes as skip, not back to apply."""
+    root, _, v2 = coll
+    ops, reqs, cs = _changeset(v2, root)
+    for item in cs["changed"]:
+        for d in item["diffs"]:
+            if d["key"] == "param.query.category":
+                d["action"] = "skip"
+    _apply_all(v2, root, ops, reqs, cs)
+
+    # a fresh deviation keeps the endpoint in `changed` so its diffs serialize
+    list_yml = root / "demo/Widgets/List.yml"
+    list_yml.write_text(
+        list_yml.read_text().replace("docs: List widgets.", "docs: tampered"))
+    _, _, cs2 = _changeset(v2, root)
+    plan = changeset_to_plan(cs2, str(v2), root)
+    item = next(i for i in plan["changed"]
+                if i["file"] == "demo/Widgets/List.yml")
+    cat = next(d for d in item["diffs"] if d["key"] == "param.query.category")
+    assert cat["action"] == "skip"
+
+
+def test_root_create_resolves_symlinked_root(tmp_path):
+    """Root-level create works when the collection path is unresolved."""
+    from vegito.apply import create_request
+    real = tmp_path / "coll"
+    real.mkdir()
+    link = tmp_path / "link"
+    link.symlink_to(real)
+    op = {"operation_id": "x", "method": "get", "path": "/x/", "norm": "/x",
+          "path_params": [], "query": {}, "headers": {}, "body": {},
+          "auth_required": False, "responses": {}, "tags": [],
+          "description": ""}
+    assert create_request(link, "", op, None).exists()
+
+
+def test_auth_required_honors_anonymous_alternative(tmp_path):
+    """security: [{jwtAuth: []}, {}] allows anonymous → auth not required."""
+    from vegito.schema import load_schema, parse_operations
+    s = tmp_path / "s.yaml"
+    s.write_text(textwrap.dedent("""\
+        openapi: 3.0.3
+        info: {title: T, version: "1"}
+        paths:
+          /anon/:
+            get:
+              operationId: anon_get
+              security: [{jwtAuth: []}, {}]
+              responses: {'200': {description: ''}}
+          /secure/:
+            get:
+              operationId: secure_get
+              security: [{jwtAuth: []}]
+              responses: {'200': {description: ''}}
+        """))
+    ops = {o["operation_id"]: o for o in parse_operations(load_schema(s))}
+    assert ops["anon_get"]["auth_required"] is False
+    assert ops["secure_get"]["auth_required"] is True
+
+
+def test_parse_operations_coerces_nonstring_operation_id(tmp_path):
+    """operationId: 123 parses to '123' — safe_filename/scalar stay safe."""
+    from vegito.schema import load_schema, parse_operations
+    from vegito.skeleton import safe_filename
+    s = tmp_path / "s.yaml"
+    s.write_text(textwrap.dedent("""\
+        openapi: 3.0.3
+        info: {title: T, version: "1"}
+        paths:
+          /x/:
+            get:
+              operationId: 123
+              responses: {'200': {description: ''}}
+        """))
+    op = parse_operations(load_schema(s))[0]
+    assert op["operation_id"] == "123"
+    assert safe_filename(op["operation_id"]) == "123"
+
+
+def test_print_changeset_escapes_markup(capsys):
+    """Values containing [ ] print literally, not as rich markup."""
+    from vegito.cli import _print_changeset
+    cs = {"added": [], "removed": [], "moved": [], "skipped_count": 0,
+          "conventions": {"headers": {}, "auth": None},
+          "changed": [{"operation": {"method": "get", "path": "/x/[b]/"},
+                       "request": {"rel": "R[b].yml"},
+                       "diffs": [{"key": "docs", "change": "note",
+                                  "detail": "has [dim] inside",
+                                  "action": "note", "data": None}]}]}
+    _print_changeset(cs)
+    out = capsys.readouterr().out
+    assert "[b]" in out and "[dim] inside" in out
+
+
+def test_print_changeset_escapes_method_markup(capsys):
+    """A request method containing [ ] prints literally, not as markup."""
+    from vegito.cli import _print_changeset
+    cs = {"added": [], "moved": [], "skipped_count": 0,
+          "conventions": {"headers": {}, "auth": None}, "changed": [],
+          "removed": [{"request": {"method": "g[red]et",
+                                   "url_path": "/x/", "rel": "X.yml"},
+                       "action": "archive", "method": "g[red]et",
+                       "path": "/x/"}]}
+    _print_changeset(cs)
+    assert "[RED]" in capsys.readouterr().out
+
+
+def test_print_changeset_handles_nonstring_scalars(capsys):
+    """Non-string YAML scalars (e.g. int operationId) print without a crash."""
+    from vegito.cli import _print_changeset
+    cs = {"added": [{"operation": {"method": "get", "path": "/x/",
+                                   "operation_id": 123},
+                     "action": "add", "folder": None, "name": "x"}],
+          "removed": [{"request": {"method": "get", "url_path": "/old/",
+                                   "rel": "Old.yml"},
+                       "action": "archive", "method": "get",
+                       "path": "/old/"}],
+          "moved": [], "skipped_count": 0,
+          "conventions": {"headers": {}, "auth": None}, "changed": []}
+    _print_changeset(cs)
+    assert "123" in capsys.readouterr().out
+
+
+def _cold_req(hval, auth):
+    return {"file": None, "rel": "r.yml", "name": "r", "method": "get",
+            "url_path": "{{baseUrl}}/x/", "norm": "/x", "path_params": [],
+            "query": {}, "body": {}, "docs": "",
+            "headers": {"x-custom-key": {"name": "X-Custom-Key",
+                                         "value": hval}},
+            "auth": auth}
+
+
+def test_env_var_names(tmp_path):
+    """Env var names are collected across environments/*.yml."""
+    from vegito.collection import env_var_names
+    envs = tmp_path / "environments"
+    envs.mkdir()
+    (envs / "a.yml").write_text(
+        "name: A\nvariables:\n  - name: token\n  - name: org_key\n")
+    assert env_var_names(tmp_path) == {"token", "org_key"}
+    assert env_var_names(tmp_path / "nope") == set()
+    # non-mapping docs (list / bare scalar) are skipped, not crashed on
+    (envs / "list.yml").write_text("- a\n- b\n")
+    (envs / "scalar.yml").write_text("just a string\n")
+    assert env_var_names(tmp_path) == {"token", "org_key"}
+
+
+def test_cold_start_proposals(tmp_path):
+    """Cold collections get {{var}} proposals; mature ones stay untouched."""
+    from vegito.collection import collection_proposals
+    prop = collection_proposals(
+        [_cold_req("", {"type": "bearer", "token": ""}),
+         _cold_req("", {"type": "bearer", "token": ""})],
+        {"customKey", "token"})
+    entry = prop["headers"]["x-custom-key"]
+    assert entry["value"] == "{{customKey}}" and entry["proposed"]
+    assert prop["auth"]["config"]["token"] == "{{token}}"
+    assert prop["auth"]["proposed"]
+
+    op = dict(_op_with_header(),
+              headers={"x-custom-key": {"name": "X-Custom-Key"}})
+    reqs = [_cold_req("", None), _cold_req("", None)]
+    cs = build_changeset([op], reqs, None, tmp_path)
+    conv = cs["conventions"]["headers"]["x-custom-key"]
+    assert conv["value"] == "{{custom_key}}" and conv["proposed"]
+    assert any(d["change"] == "convention" for i in cs["changed"]
+               for d in i["diffs"])
+
+    # a recurring header no op declares is dead weight — never proposed
+    for r in reqs:
+        r["headers"]["content-type"] = {"name": "Content-Type", "value": ""}
+    cs = build_changeset([op], reqs, None, tmp_path)
+    assert set(cs["conventions"]["headers"]) == {"x-custom-key"}
+    # ...unless an added op can inherit it in a skeleton
+    op2 = dict(op, operation_id="y", path="/y/", norm="/y",
+               headers={"content-type": {"name": "Content-Type"}})
+    cs = build_changeset([op, op2], reqs, None, tmp_path)
+    assert set(cs["conventions"]["headers"]) == {"x-custom-key",
+                                                 "content-type"}
+
+    # env vars that normalize identically pick a stable winner across runs
+    prop = collection_proposals(
+        [_cold_req("", {"type": "bearer", "token": ""}),
+         _cold_req("", {"type": "bearer", "token": ""})],
+        {"customKey", "custom_key", "token", "Token"})
+    assert prop["headers"]["x-custom-key"]["value"] == "{{customKey}}"
+    assert prop["auth"]["config"]["token"] == "{{Token}}"
+
+    cold_no_root = build_changeset([op], reqs, None)
+    assert not cold_no_root["conventions"]["headers"]
+    warm = build_changeset(
+        [op], [_cold_req("{{v}}", None), _cold_req("{{v}}", None)],
+        None, tmp_path)
+    entry = warm["conventions"]["headers"]["x-custom-key"]
+    assert entry["value"] == "{{v}}" and "proposed" not in entry
+
+
+def test_proposal_missing_header_not_double_flagged(tmp_path):
+    """Under proposals, an absent-but-declared header gets only the
+    'added' diff — a convention diff on top would flag it twice."""
+    def req(norm, headers):
+        r = _cold_req("", None)
+        r["norm"], r["headers"] = norm, headers
+        return r
+    opA = dict(_op_with_header(), headers={"x-k": {"name": "X-K"}})
+    opB = dict(opA, operation_id="b", path="/b/", norm="/b")
+    opC = dict(opA, operation_id="c", path="/c/", norm="/c")
+    reqs = [req("/x", {"x-k": {"name": "X-K", "value": ""}}),
+            req("/b", {"x-k": {"name": "X-K", "value": ""}}),
+            req("/c", {})]
+    cs = build_changeset([opA, opB, opC], reqs, None, tmp_path)
+    by_norm = {i["request"]["norm"]: i for i in cs["changed"]}
+    # present-but-blank → convention diff only
+    kinds = [(d["key"], d["change"]) for d in by_norm["/x"]["diffs"]]
+    assert ("header.X-K", "convention") in kinds
+    assert ("header.X-K", "added") not in kinds
+    # absent → added diff only (with the proposed value as a hint)
+    kinds = [(d["key"], d["change"]) for d in by_norm["/c"]["diffs"]]
+    assert ("header.X-K", "convention") not in kinds
+    added = next(d for d in by_norm["/c"]["diffs"]
+                 if d["key"] == "header.X-K")
+    assert added["change"] == "added"
+    assert added["data"]["convention_value"] == "{{k}}"
+
+
+def test_retarget_convention_diffs():
+    """Renamed/dropped conventions update or remove their diffs."""
+    from vegito.diff import retarget_convention_diffs
+    container = {
+        "conventions": {"headers": {"x-k": {"name": "X-K", "value": "{{a}}",
+                                           "count": 2}},
+                        "auth": {"config": {"type": "bearer",
+                                            "token": "{{t}}"},
+                                 "count": 2}},
+        "changed": [
+            {"diffs": [
+                {"key": "header.X-K", "change": "convention",
+                 "action": "apply", "detail": "d",
+                 "data": {"name": "X-K", "value": "{{a}}"}},
+                {"key": "auth", "change": "convention", "action": "apply",
+                 "detail": "d", "data": {"type": "bearer", "token": "{{t}}"}},
+                {"key": "docs", "change": "modified", "action": "apply",
+                 "detail": "d", "data": "x"}]},
+            {"diffs": [
+                {"key": "header.X-K", "change": "convention",
+                 "action": "apply", "detail": "d",
+                 "data": {"name": "X-K", "value": "{{a}}"}}]}],
+    }
+    conv = container["conventions"]
+    conv["headers"]["x-k"]["value"] = "{{renamed}}"
+    retarget_convention_diffs(container)
+    d = container["changed"][0]["diffs"][0]
+    assert d["data"]["value"] == "{{renamed}}" and "{{renamed}}" in d["detail"]
+
+    del conv["headers"]["x-k"]
+    conv["auth"] = None
+    retarget_convention_diffs(container)
+    assert [d["key"] for d in container["changed"][0]["diffs"]] == ["docs"]
+    assert len(container["changed"]) == 1
+
+
+def test_retarget_resyncs_added_header_convention():
+    """'added' header diffs track a renamed/dropped convention too — apply
+    writes data.convention_value verbatim, so it must not go stale."""
+    from vegito.diff import retarget_convention_diffs
+    container = {
+        "conventions": {"headers": {"x-k": {"name": "X-K", "value": "{{a}}",
+                                           "count": 2}},
+                        "auth": None},
+        "changed": [{"diffs": [
+            {"key": "header.X-K", "change": "added", "action": "apply",
+             "detail": "header 'X-K' added (convention: {{a}})",
+             "data": {"name": "X-K", "convention_value": "{{a}}"}}]}],
+    }
+    d = container["changed"][0]["diffs"][0]
+    container["conventions"]["headers"]["x-k"]["value"] = "{{b}}"
+    retarget_convention_diffs(container)
+    assert d["data"]["convention_value"] == "{{b}}"
+    assert d["detail"] == "header 'X-K' added (convention: {{b}})"
+
+    del container["conventions"]["headers"]["x-k"]
+    retarget_convention_diffs(container)
+    assert "convention_value" not in d["data"]
+    assert d["detail"] == "header 'X-K' added"
+
+
+def test_retarget_recounts_skipped_diffs():
+    """Diffs retarget drops no longer inflate skipped_count."""
+    from vegito.diff import retarget_convention_diffs
+    container = {
+        "skipped_count": 2,
+        "conventions": {"headers": {"x-k": {"name": "X-K", "value": "{{a}}",
+                                           "count": 2}},
+                        "auth": None},
+        "changed": [{"diffs": [
+            {"key": "header.X-K", "change": "convention", "action": "skip",
+             "skipped": True, "detail": "d",
+             "data": {"name": "X-K", "value": "{{a}}"}},
+            {"key": "docs", "change": "modified", "action": "apply",
+             "skipped": True, "detail": "d", "data": "x"}]}],
+    }
+    del container["conventions"]["headers"]["x-k"]
+    retarget_convention_diffs(container)
+    assert [d["key"] for d in container["changed"][0]["diffs"]] == ["docs"]
+    assert container["skipped_count"] == 1
+
+
+def test_retarget_resurfaces_renamed_convention_skip():
+    """A skipped convention diff resurfaces when its value is rewritten —
+    the skip signature fingerprinted the old data."""
+    from vegito.diff import retarget_convention_diffs
+    container = {
+        "skipped_count": 3,
+        "conventions": {"headers": {"x-k": {"name": "X-K", "value": "{{b}}"},
+                                    "y": {"name": "Y", "value": "{{c}}"}},
+                        "auth": {"config": {"type": "bearer",
+                                            "token": "{{t2}}"}}},
+        "changed": [{"diffs": [
+            {"key": "header.X-K", "change": "convention", "action": "skip",
+             "skipped": True, "detail": "d",
+             "data": {"name": "X-K", "value": "{{a}}"}},
+            {"key": "header.Y", "change": "convention", "action": "skip",
+             "skipped": True, "detail": "d",
+             "data": {"name": "Y", "value": "{{c}}"}},
+            {"key": "auth", "change": "convention", "action": "skip",
+             "skipped": True, "detail": "d",
+             "data": {"type": "bearer", "token": "{{t}}"}}]}],
+    }
+    retarget_convention_diffs(container)
+    renamed, same, renamed_auth = container["changed"][0]["diffs"]
+    assert "skipped" not in renamed      # {{a}} → {{b}}: resurfaces
+    assert same["skipped"]               # unchanged: stays hidden
+    assert "skipped" not in renamed_auth  # {{t}} → {{t2}}: resurfaces
+    assert container["skipped_count"] == 1
+
+
+def test_retarget_decrements_skipped_count():
+    """skipped_count covers hidden items too — retarget subtracts what it
+    dropped/resurfaced rather than recomputing over 'changed'."""
+    from vegito.diff import retarget_convention_diffs
+    container = {
+        # 1 skipped diff below + 2 on fully-hidden items outside 'changed'
+        "skipped_count": 3,
+        "conventions": {"headers": {}, "auth": None},
+        "changed": [{"diffs": [
+            {"key": "header.X-K", "change": "convention", "action": "skip",
+             "skipped": True, "detail": "d",
+             "data": {"name": "X-K", "value": "{{a}}"}},
+            {"key": "docs", "change": "modified", "action": "apply",
+             "detail": "d", "data": "x"}]}],
+    }
+    retarget_convention_diffs(container)
+    # a recount over 'changed' would report 0 — only the drop is subtracted
+    assert container["skipped_count"] == 2
+
+
+def test_retarget_strips_diverged_suffix():
+    """A hand-edit diverging convention_value from the detail suffix must
+    not yield a doubled ' (convention: …)' after retarget."""
+    from vegito.diff import retarget_convention_diffs
+    container = {
+        "conventions": {"headers": {"x-k": {"name": "X-K",
+                                           "value": "{{new}}",
+                                           "count": 2}},
+                        "auth": None},
+        "changed": [{"diffs": [
+            {"key": "header.X-K", "change": "added", "action": "apply",
+             "detail": "header 'X-K' added (convention: {{edited}})",
+             "data": {"name": "X-K", "convention_value": "{{orig}}"}}]}],
+    }
+    retarget_convention_diffs(container)
+    d = container["changed"][0]["diffs"][0]
+    assert d["data"]["convention_value"] == "{{new}}"
+    assert d["detail"] == "header 'X-K' added (convention: {{new}})"
+
+
+def test_retarget_tolerates_missing_diffs_key():
+    """A hand-edited 'changed' entry without 'diffs' is no bare KeyError —
+    it survives retarget for the caller's per-item error handling."""
+    from vegito.diff import retarget_convention_diffs
+    container = {"conventions": {"headers": {}, "auth": None},
+                   "changed": [{"file": "X.yml", "method": "get",
+                                "path": "/x/"}]}
+    retarget_convention_diffs(container)
+    assert container["changed"][0]["diffs"] == []
+
+
+def test_auth_convention_diff_snapshots_config(tmp_path):
+    """The auth diff's data is a snapshot, not an alias — _name_proposals
+    mutates conventions["auth"]["config"] in place, and retarget's
+    resurface check must observe the pre-rename value."""
+    from vegito.diff import retarget_convention_diffs
+    op = dict(_op_with_header(),
+              headers={"x-custom-key": {"name": "X-Custom-Key"}})
+    reqs = [_cold_req("", {"type": "bearer", "token": ""}),
+            _cold_req("", {"type": "bearer", "token": ""})]
+    cs = build_changeset([op], reqs, None, tmp_path)
+    cfg = cs["conventions"]["auth"]["config"]
+    d = next(d for i in cs["changed"] for d in i["diffs"]
+             if d["key"] == "auth")
+    assert d["data"] == cfg and d["data"] is not cfg
+
+    # simulate a wizard rename over a stale skip flag, then retarget
+    d["skipped"] = True
+    cfg["token"] = "{{renamed}}"   # what _name_proposals writes
+    retarget_convention_diffs(cs)
+    assert "skipped" not in d
+    assert d["data"]["token"] == "{{renamed}}"
+
+
+def test_var_ref_normalizes_and_validates():
+    """Proposal answers wrap to {{var}}; malformed input is rejected."""
+    from vegito.wizard import _var_ref
+    assert _var_ref("tok") == "{{tok}}"
+    assert _var_ref("{{tok}}") == "{{tok}}"
+    assert _var_ref(" {{tok}} ") == "{{tok}}"
+    for bad in ("{{tok", "x}}", "a b", "{{}}", "1st", ""):
+        assert _var_ref(bad) is None
+
+
+def test_derived_var_names_satisfy_var_grammar():
+    """Proposals only emit names the wizard validator accepts — no
+    self-rejected defaults."""
+    from vegito.collection import _derive_var_name
+    from vegito.wizard import _var_ref
+    # digit-leading derivation gets a '_' prefix
+    name = _derive_var_name("X-3scale-Key", set())
+    assert name == "_3scale_key" and _var_ref(name) == "{{_3scale_key}}"
+    # a non-identifier env spelling falls back to the derived name
+    name = _derive_var_name("X-Api-Key", {"api-key"})
+    assert name == "api_key" and _var_ref(name) == "{{api_key}}"

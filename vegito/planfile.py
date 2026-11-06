@@ -9,6 +9,15 @@ from ruamel.yaml import YAML
 _yaml = YAML(typ="safe")
 
 
+def _plan_diff(d: dict) -> dict:
+    """Serialize one diff — a previously skipped diff stays ``skip`` in the
+    plan so an unedited apply can't resurrect it."""
+    out = {k: v for k, v in d.items() if k != "skipped"}
+    if d.get("skipped"):
+        out["action"] = "skip"
+    return out
+
+
 def changeset_to_plan(changeset: dict, schema_path: str, root: Path) -> dict:
     """Convert a build_changeset result into a plain, file-friendly plan."""
     plan = {
@@ -16,6 +25,7 @@ def changeset_to_plan(changeset: dict, schema_path: str, root: Path) -> dict:
         "schema": str(schema_path),
         "collection": str(root),
         "generated": datetime.now(timezone.utc).isoformat(),
+        "conventions": changeset.get("conventions"),
         "added": [], "removed": [], "moved": [], "changed": [],
     }
     for item in changeset["added"]:
@@ -50,20 +60,32 @@ def changeset_to_plan(changeset: dict, schema_path: str, root: Path) -> dict:
             "operation_id": item["operation"]["operation_id"],
             "operation": item["operation"],
             "state_key": item["state_key"],
-            "diffs": [{k: v for k, v in d.items() if k != "skipped"}
-                      for d in item["diffs"]],
+            "diffs": [_plan_diff(d) for d in item["diffs"]],
         })
     return plan
 
 
 def save_plan(plan: dict, path: Path):
-    Path(path).write_text(_yaml_to_text(plan))
+    header = ("# conventions is a changeset-time snapshot for review —\n"
+              "# `vegito apply` re-votes it over the plan's final survivors.\n")
+    Path(path).write_text(header + _yaml_to_text(plan))
+
+
+def _dealias(node):
+    """Rebuild a structure with fresh containers — shared sub-objects would
+    otherwise serialize as ``&id``/``*id`` anchors into the user-editable
+    plan file (deepcopy alone preserves the shared topology)."""
+    if isinstance(node, dict):
+        return {k: _dealias(v) for k, v in node.items()}
+    if isinstance(node, list):
+        return [_dealias(v) for v in node]
+    return node
 
 
 def _yaml_to_text(data) -> str:
     from io import StringIO
     buf = StringIO()
-    _yaml.dump(data, buf)
+    _yaml.dump(_dealias(data), buf)
     return buf.getvalue()
 
 

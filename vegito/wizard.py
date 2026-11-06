@@ -6,11 +6,19 @@ from pathlib import Path
 import questionary
 from questionary import Choice
 from rich.console import Console
+from rich.markup import escape
 from rich.panel import Panel
 
 from . import manifest as mf
-from .collection import find_collection_root, list_dirs, scan_collection
-from .diff import build_changeset
+from .collection import (
+    VAR_NAME_RE,
+    find_collection_root,
+    format_conventions,
+    list_dirs,
+    scan_collection,
+)
+from .common import fingerprint
+from .diff import build_changeset, retarget_convention_diffs
 from .planfile import changeset_to_plan
 from .runner import execute_plan, render_report, write_report
 from .schema import load_schema, parse_operations
@@ -136,27 +144,33 @@ def _review(changeset: dict, dirs: list[str]) -> bool:
             req, op = item["request"], item["operation"]
             actionable = [d for d in item["diffs"] if d["change"] != "note"]
             notes = [d for d in item["diffs"] if d["change"] == "note"]
-            console.print(f"\n  [bold]{req['name']}[/]  ({req['rel']})"
-                          f"  {op['method'].upper()} {op['path']}")
+            console.print(f"\n  [bold]{escape(str(req['name']))}[/]  "
+                          f"({escape(str(req['rel']))})"
+                          f"  {op['method'].upper()}"
+                          f" {escape(str(op['path']))}")
             for d in notes:
                 if not d.get("skipped"):
-                    console.print(f"    [dim]note: {d['detail']}[/]")
+                    console.print(f"    [dim]note: "
+                                  f"{escape(str(d['detail']))}[/]")
             if actionable:
                 choices = [Choice(d["detail"], value=n,
-                                  checked=not d.get("skipped"))
+                                  checked=d["action"] == "apply"
+                                  and not d.get("skipped"))
                            for n, d in enumerate(item["diffs"])
                            if d["change"] != "note"]
                 picked = questionary.checkbox(
                     "  apply:", choices=choices).ask()
                 if picked is None:
                     return False
-                ai = 0
-                for d in item["diffs"]:
+                for n, d in enumerate(item["diffs"]):
                     if d["change"] == "note":
                         d["action"] = "note"
+                    elif n in picked:
+                        d["action"] = "apply"
+                        # re-applied by choice — no longer a stored skip
+                        d.pop("skipped", None)
                     else:
-                        d["action"] = "apply" if ai in picked else "skip"
-                        ai += 1
+                        d["action"] = "skip"
     return True
 
 
@@ -168,6 +182,72 @@ def _summary_line(changeset: dict) -> str:
             f"[cyan]Δ{len(c['changed'])} changed[/]"
             + (f"   [dim]({c['skipped_count']} previously skipped hidden)[/]"
                if c["skipped_count"] else ""))
+
+
+def _var_ref(answer: str) -> str | None:
+    """Normalize a proposal answer to a ``{{var}}`` reference, else ``None``.
+
+    Accepts a bare name or an already-braced ``{{name}}``; stray braces or
+    non-identifier input is malformed — the prompt re-asks instead of
+    writing a dead reference into files. Shares ``VAR_NAME_RE`` with the
+    proposal generator so the tool never rejects its own suggestions.
+    """
+    name = answer.strip()
+    if name.startswith("{{") and name.endswith("}}"):
+        name = name[2:-2].strip()
+    return "{{" + name + "}}" if VAR_NAME_RE.fullmatch(name) else None
+
+
+def _valid_var(answer: str) -> bool | str:
+    """questionary validator: blank (decline) or a parseable var ref."""
+    return (not answer.strip() or _var_ref(answer) is not None
+            or "enter a var name or {{var}} reference")
+
+
+def _name_proposals(conv: dict) -> tuple[bool, set[str]]:
+    """Prompt for env-var names on cold-start proposals.
+
+    Accepting keeps the proposal (with the typed name); a blank answer
+    drops it and records its signature so the same suggestion is not
+    re-asked next run. Returns ``(ok, declined_sigs)`` — ok is False
+    when the user cancels (abort the run).
+    """
+    headers = conv.get("headers")
+    auth = conv.get("auth") or {}
+    declined: set[str] = set()
+    if not any(c.get("proposed") for c in (headers or {}).values()) \
+            and not auth.get("proposed"):
+        return True, declined
+    console.print("[bold]Proposed conventions[/] — enter an env var, "
+                  "blank to skip:")
+    for lname, c in list((headers or {}).items()):
+        if not c.get("proposed"):
+            continue
+        answer = questionary.text(f"  {c['name']}:",
+                                  default=c["value"],
+                                  validate=_valid_var).ask()
+        if answer is None:
+            return False, declined
+        answer = answer.strip()
+        if not answer:
+            del headers[lname]
+            declined.add(f"header:{lname}:{c.get('value')}")
+        else:
+            c["value"] = _var_ref(answer)
+    if auth.get("proposed"):
+        answer = questionary.text(
+            "  bearer token:",
+            default=auth["config"].get("token", "{{token}}"),
+            validate=_valid_var).ask()
+        if answer is None:
+            return False, declined
+        answer = answer.strip()
+        if not answer:
+            conv["auth"] = None
+            declined.add(f"auth:{fingerprint(auth['config'])}")
+        else:
+            auth["config"]["token"] = _var_ref(answer)
+    return True, declined
 
 
 def run(schema: str | None = None, collection: str | None = None):
@@ -185,12 +265,30 @@ def run(schema: str | None = None, collection: str | None = None):
         ops = parse_operations(doc)
         reqs = scan_collection(root)
         manifest = mf.load(root)
-        changeset = build_changeset(ops, reqs, manifest)
+        changeset = build_changeset(ops, reqs, manifest, root)
         dirs = list_dirs(root)
 
     console.print(f"\n{len(ops)} operations in schema · "
-                  f"{len(reqs)} requests in collection\n"
-                  f"{_summary_line(changeset)}")
+                  f"{len(reqs)} requests in collection\n")
+
+    conv = changeset.get("conventions") or {}
+    ok, declined = _name_proposals(conv)
+    if not ok:
+        console.print("[dim]Aborted — nothing was changed.[/]")
+        return
+    if declined:
+        # Remember declines — a cold collection re-proposes every run
+        # until real votes exist.
+        prev = set(manifest.get("declined_proposals") or [])
+        manifest["declined_proposals"] = sorted(prev | declined)
+    # Declines/renames can drop or rewrite diffs — summarize after retarget
+    # so Δ/skipped counts reflect the pruned changeset.
+    retarget_convention_diffs(changeset)
+
+    console.print(_summary_line(changeset))
+    conv_line = format_conventions(changeset.get("conventions"))
+    if conv_line:
+        console.print(f"[dim]conventions: {escape(str(conv_line))}[/]")
 
     if not any([changeset["added"], changeset["removed"],
                 changeset["changed"], changeset["moved"]]):
@@ -227,4 +325,4 @@ def run(schema: str | None = None, collection: str | None = None):
     if report["errors"]:
         console.print(f"[bold red]{len(report['errors'])} errors[/] — "
                       "see report")
-    console.print(f"Report: {_display_path(report_path)}")
+    console.print(f"Report: {escape(_display_path(report_path))}")

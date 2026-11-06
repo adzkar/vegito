@@ -32,7 +32,8 @@ request names, folder grouping, `runtime.scripts`, auth, filled-in values.
 
 - `vegito/common.py` — path normalization + segment alignment
 - `vegito/schema.py` — OpenAPI → normalized operations ($ref-resolved)
-- `vegito/collection.py` — collection dir → normalized requests
+- `vegito/collection.py` — collection dir → normalized requests +
+  convention inference (modal header values / auth config, ≥2 uses win)
 - `vegito/diff.py` — matching (method + normalized path) + field diffs
 - `vegito/apply.py` / `skeleton.py` — surgical edits + new-file generation
 - `vegito/runner.py` — plan execution + report
@@ -59,6 +60,27 @@ Plan action vocabulary:
 - `moved[].action`: `move` (rewrite file URL to new path) | `skip`.
 - `changed[].diffs[].action`: `apply` | `skip` (remembered by signature) |
   `note` (informational only, e.g. response-shape notes).
+- `conventions`: inferred collection conventions (`headers.<lname>` →
+  modal `value`, `auth.config` → modal auth dict; each with vote `count`).
+  New skeletons inherit them; `change: "convention"` diffs flag matched
+  requests that deviate — they emit `action: skip` (opt-in; `apply`
+  rewrites the field to the convention). The serialized block is a
+  changeset-time snapshot for review — `apply` re-votes over the plan's
+  final survivor set, so a `removed` entry flipped to `keep` rejoins.
+  Only the block's `proposed` entries are honored verbatim, and only on
+  a side the re-vote didn't win — inferred entries are always
+  re-derived, so a stale snapshot can't revive a dead convention. A
+  hand-written entry is honored the same way if it's marked
+  `proposed: true` and carries a usable `value`/`config`; unmarked
+  entries are treated as stale inference and dropped. An emptied block
+  (`{headers: {}, auth: null}`) is the decline signal — apply keeps
+  dead sides dead instead of regenerating; an absent block regenerates
+  (legacy plans). Entries marked `proposed: true` are cold-start
+  suggestions, not votes — `count` is then the number of
+  requests carrying the field. The resolved block is authoritative for
+  new skeletons and applied `convention` diffs alike (retarget re-syncs
+  them); when it differs from the serialized block, the apply report
+  notes which source won.
 
 ## Domain primer (opencollection format)
 
@@ -97,16 +119,53 @@ Conventions observed in the target collection (replicate in `skeleton.py`):
 - **Matching heuristic**: `norm_path` treats `{x}`, `:x`, all-numeric, and
   UUID URL segments as param placeholders. Intentional — users paste real ids
   into URLs (`groups/9/`). Diff restores `:param` and keeps their value.
+- **Moved endpoints**: a `moved` entry is excluded from `matched`, so it
+  gets no field-level diffs (headers/params/body/conventions) in that
+  changeset — they surface on the *next* `diff`/`apply` once the move
+  lands. Deliberate layering, not a gap.
 - **`param.path.N` apply** uses `param_file_index` (difflib alignment) — the
   request URL and the example's URL can have *different* segment layouts.
 - **Manifest** (`.merger/state.json`): per-endpoint schema snapshot (`body`,
   `responses` field maps + `sig`). Enables response/requiredness diffs next
-  run (files don't store schema metadata) and `skipped` diff signatures.
+  run (files don't store schema metadata) and `skipped` diff signatures —
+  keyed `change␟field` so a convention skip can't clobber a schema-diff
+  skip on the same field (bare-key entries from older runs still read).
 - **Untouchable user data**: `info.name`, `seq`, `runtime.scripts`,
   `http.auth`, `settings`, environments, filled-in values — edits only target
-  the specific field a diff names.
+  the specific field a diff names. (`http.auth`'s one opt-in exception: an
+  explicitly applied `convention` diff rewrites it to the convention.)
 - **Manual files**: files matching nothing in the schema would look "removed";
   `keep` records them in `manual_files` so they stop being flagged.
+- **Conventions** (`collection_conventions`): modal header value / auth
+  config wins with ≥2 uses, voted over requests that survive the merge —
+  `removed` files don't get a vote (a dead convention evaporates with the
+  archive). New skeletons inherit them; requests *carrying* a deviating
+  value get an opt-in `convention` diff (emits `action: skip`; the skip
+  signature covers the convention value, so a modal flip resurfaces it —
+  a serialized plan `action: skip` records the sig of the *reviewed*
+  value, so a flip between `plan` and `apply` still resurfaces).
+  A missing field, blank header value, missing auth, or `auth: inherit`
+  is never flagged (can't tell deliberate inheritance) — a *carried*
+  auth block with empty credentials still deviates (the block exists,
+  unlike absence). Surfaced header conventions are filtered to names
+  the schema still declares.
+- **Cold-start proposals** (`collection_proposals`): when inference finds
+  *nothing* and `build_changeset` gets a `root`, recurring header names /
+  bearer auth yield `proposed: true` env-var suggestions — the wizard asks
+  per var (plan files get derived defaults). Only headers a matched or
+  added op declares are proposed (an op-less header could never be
+  consumed). A declined suggestion is remembered in the manifest's
+  `declined_proposals` sigs (`header:<lname>:<value>` /
+  `auth:<fingerprint(config)>`) and filtered at regeneration — the sig
+  covers the proposed value, so a renamed var re-asks. `retarget_convention_diffs`
+  re-syncs diffs after renames or plan `conventions:` edits — call it
+  before applying, never write to `environments/*.yml`. Any diff that
+  caches a convention copy must re-sync there: `change: "convention"` diffs
+  (`data.value`/`config` + detail text) and `header.*` "added" diffs
+  (`data.convention_value` + the ` (convention: …)` suffix — apply writes
+  both verbatim). Its `skipped_count` update decrements by what was
+  dropped/resurfaced — never recomputed over `changed`, which excludes
+  fully-hidden items whose skips still count.
 - `data: |-` literal blocks: no trailing newline in `LiteralScalarString`,
   or ruamel emits `data: |` instead.
 - **Hand-emitted scalars** (`skeleton.py` `_yaml_scalar`) must round-trip as
@@ -133,6 +192,16 @@ Conventions observed in the target collection (replicate in `skeleton.py`):
   concrete example instead), and install/uninstall blocks should give a
   command per supported installer (pipx / uv tool / pip) — the README
   Uninstall block is the reference.
+
+## Working on issues / PRs
+
+- One worktree per issue: `git worktree add ../vegito-issue-N -b <type>/<slug>`
+  (e.g. `fix/new-folder-choice`, `feat/conventions`) — never work directly
+  in the master checkout.
+- Stacked work: branch off the feature branch, not master, and set the PR
+  base accordingly (`gh pr create --base <parent-branch>`).
+- Cleanup after merge: `git worktree remove ../vegito-issue-N`, delete the
+  merged local branch, and `git fetch --prune` the remote.
 
 ## Commit conventions
 
@@ -172,7 +241,8 @@ fabricate files per the primer above:
   shows only the intended lines — no whitespace/quote/ordering churn in
   untouched files.
 - **Invariants hold**: no edits to `info.name`, `seq`, `runtime.scripts`,
-  `http.auth`, `settings`, environments, or user-filled values outside the
+  `http.auth` (except via an explicitly applied `convention` diff),
+  `settings`, environments, or user-filled values outside the
   diffed field (see "Load-bearing details").
 - **Idempotent**: running `diff` again on the merged collection reports
   "up to date" (modulo explicitly skipped diffs).

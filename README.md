@@ -128,15 +128,22 @@ vegito update                                      # upgrade to the latest relea
   detected and restored as `:param` while keeping your value.
 - **New endpoints** — generated as `.yml` in the folder you pick, in the same
   style as the collection (disabled query params, header descriptions,
-  `bearer {{token}}` only when required, `examples` template).
+  `examples` template), inheriting the collection's modal conventions —
+  most-used header values and auth config (≥2 uses win). An `auth:` block
+  is emitted only when the operation requires it.
+- **Conventions** — requests that deliberately carry a value different from
+  the modal convention get an opt-in `convention` diff: skipped by default,
+  apply it to rewrite that field to the convention. Missing fields and
+  `auth: inherit` are never flagged.
 - **Removed endpoints** — moved to `_Archived/`, or kept as manual requests so
   they aren't flagged again.
 - **Skipped diffs** — recorded by signature in `.merger/state.json`; they stay
   hidden until the schema changes that field again.
 - **Reports** — each run writes `<collection>/.merger/reports/<timestamp>.md`.
 
-The tool never touches `info.name`, `seq`, `runtime.scripts`, `http.auth`,
-`settings`, environments, or values you filled in.
+The tool never touches `info.name`, `seq`, `runtime.scripts`, `settings`,
+environments, or values you filled in. `http.auth` is rewritten only when a
+`convention` diff is explicitly applied — never silently.
 
 ## Development
 

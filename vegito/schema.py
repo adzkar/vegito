@@ -108,11 +108,12 @@ def _params(operation: dict, path_item: dict, components: dict) -> tuple[list, d
 
 
 def _auth_required(operation: dict, root_security) -> bool:
-    """True when the op requires auth (security present, no anonymous option)."""
+    """True when the op requires auth — an empty ``{}`` alternative in the
+    security list means anonymous access is allowed."""
     security = operation.get("security", root_security)
     if not security:
         return False
-    return any(isinstance(req, dict) and req for req in security)
+    return not any(isinstance(req, dict) and not req for req in security)
 
 
 def parse_operations(doc: dict) -> list[dict]:
@@ -125,7 +126,8 @@ def parse_operations(doc: dict) -> list[dict]:
         if not isinstance(path_item, dict):
             continue
         for method, raw_op in path_item.items():
-            if method.lower() not in _METHODS or not isinstance(raw_op, dict):
+            if str(method).lower() not in _METHODS \
+                    or not isinstance(raw_op, dict):
                 continue
             op = raw_op
             path_params, query, headers = _params(op, path_item, components)
@@ -145,7 +147,8 @@ def parse_operations(doc: dict) -> list[dict]:
                 "method": method.lower(),
                 "path": path,
                 "norm": norm_path(path),
-                "operation_id": op.get("operationId") or f"{method}_{norm_path(path)}",
+                "operation_id": str(op.get("operationId")
+                                    or f"{method}_{norm_path(path)}"),
                 "description": (op.get("description") or "").strip(),
                 "tags": list(op.get("tags") or []),
                 "path_params": path_params,

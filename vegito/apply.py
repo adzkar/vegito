@@ -92,8 +92,24 @@ def _del_json_path(doc, dotted: str):
 
 # ---------- request-block patching ----------
 
+def _list_slot(block: dict, key: str, create: bool = True) -> list:
+    """The list at ``block[key]`` — a missing or null value (e.g. a bare
+    ``headers:`` YAML stub) materializes a fresh list when ``create``, or
+    reads as ``[]``; a genuinely non-list value raises so malformed
+    content fails loudly into the errors report rather than being
+    silently discarded."""
+    value = block.get(key)
+    if value is None:
+        if not create:
+            return []
+        value = block[key] = []
+    elif not isinstance(value, list):
+        raise TypeError(f"{key} is {type(value).__name__}, not a list")
+    return value
+
+
 def _params(block) -> list:
-    return block.setdefault("params", [])
+    return _list_slot(block, "params")
 
 
 def _patch_req_block(block: dict, key: str, d: dict):
@@ -152,22 +168,43 @@ def _patch_req_block(block: dict, key: str, d: dict):
             entry["disabled"] = True
             _params(block).append(entry)
         else:
-            block["params"] = [p for p in _params(block)
-                               if not (p.get("type") == "query" and
-                                       str(p.get("name", "")).lower() == name.lower())]
+            cur = _list_slot(block, "params", create=False)
+            new = [p for p in cur
+                   if not (p.get("type") == "query"
+                           and str(p.get("name", "")).lower() == name.lower())]
+            if len(new) != len(cur):
+                block["params"] = new
+        return
+    if key == "auth":
+        if d["change"] == "convention" and d["data"]:
+            block["auth"] = dict(d["data"])
         return
     if key.startswith("header."):
         name = key[len("header."):]
-        headers = block.setdefault("headers", [])
         if d["change"] == "added":
             info = d["data"] or {}
-            entry = {"name": info.get("name", name), "value": ""}
+            entry = {"name": info.get("name", name),
+                     "value": info.get("convention_value", "")}
             if info.get("description"):
                 entry["description"] = info["description"]
-            headers.append(entry)
+            _list_slot(block, "headers").append(entry)
+        elif d["change"] == "convention":
+            info = d["data"] or {}
+            headers = _list_slot(block, "headers")
+            target = next((h for h in headers
+                           if str(h.get("name", "")).lower() == name.lower()),
+                          None)
+            if target is None:
+                headers.append({"name": info.get("name", name),
+                                "value": info.get("value", "")})
+            else:
+                target["value"] = info.get("value", "")
         else:
-            block["headers"] = [h for h in headers
-                                if str(h.get("name", "")).lower() != name.lower()]
+            cur = _list_slot(block, "headers", create=False)
+            new = [h for h in cur
+                   if str(h.get("name", "")).lower() != name.lower()]
+            if len(new) != len(cur):
+                block["headers"] = new
         return
 
 
@@ -185,7 +222,11 @@ def _patch_body(block: dict, field: str, add: bool, applied_keys: set):
         _set_json_path(doc, field, applied_keys)
     else:
         _del_json_path(doc, field)
-    new_body = block.setdefault("body", {})
+    new_body = block.get("body")
+    if new_body is None:
+        new_body = block["body"] = {}
+    elif not isinstance(new_body, dict):
+        raise TypeError(f"body is {type(new_body).__name__}, not a mapping")
     new_body["type"] = "json"
     new_body["data"] = LiteralScalarString(json.dumps(doc, indent=2))
 
@@ -193,20 +234,20 @@ def _patch_body(block: dict, field: str, add: bool, applied_keys: set):
 def patch_request_file(path: Path, diffs: list[dict]):
     """Apply the selected diffs to a request file in place."""
     doc = _load(path)
-    if not isinstance(doc, dict) or "http" not in doc:
-        return
-    http = doc["http"]
+    http = doc.get("http") if isinstance(doc, dict) else None
+    if not isinstance(http, dict):
+        raise ValueError(f"{path.name}: no 'http' mapping to patch")
     applied_body = {d["key"][len("body."):]
                     for d in diffs if d["key"].startswith("body.")
                     and not d["key"].endswith("!required")
                     and d["change"] == "added"}
     examples = doc.get("examples")
-    example_req = examples[0].get("request") if isinstance(examples, list) \
-        and examples and isinstance(examples[0], dict) else None
-    example_body_blocks = [ex["request"] for ex in examples or []
-                           if isinstance(ex, dict)
-                           and isinstance(ex.get("request"), dict)
-                           and isinstance(ex["request"].get("body"), dict)]
+    example_reqs = [ex["request"] for ex in
+                    (examples if isinstance(examples, list) else [])
+                    if isinstance(ex, dict)
+                    and isinstance(ex.get("request"), dict)]
+    example_body_blocks = [rb for rb in example_reqs
+                           if isinstance(rb.get("body"), dict)]
     for d in diffs:
         key = d["key"]
         if key.startswith("body."):
@@ -226,18 +267,21 @@ def patch_request_file(path: Path, diffs: list[dict]):
                 doc["docs"] = d["data"]
             else:
                 doc.pop("docs", None)
+        elif key == "auth":
+            _patch_req_block(http, key, d)
         elif not key.startswith("response."):
             _patch_req_block(http, key, d)
-            if isinstance(example_req, dict):
-                _patch_req_block(example_req, key, d)
+            for rb in example_reqs:
+                _patch_req_block(rb, key, d)
     path.write_text(_dump(doc))
 
 
 # ---------- file-level operations ----------
 
-def create_request(root: Path, folder: str, op: dict, name: str | None) -> Path:
+def create_request(root: Path, folder: str, op: dict, name: str | None,
+                   conventions: dict | None = None) -> Path:
     name = (name or "").strip() or None
-    target_dir = (root / folder).resolve() if folder else root
+    target_dir = (root / folder).resolve() if folder else root.resolve()
     if not str(target_dir).startswith(str(root.resolve()) + "/") \
             and target_dir != root.resolve():
         raise ValueError(f"folder escapes collection root: {folder!r}")
@@ -248,7 +292,8 @@ def create_request(root: Path, folder: str, op: dict, name: str | None) -> Path:
     while path.exists():
         path = target_dir / f"{safe_filename(name or op['operation_id'])}-{n}.yml"
         n += 1
-    path.write_text(render_request_file(op, next_seq(target_dir), name))
+    path.write_text(render_request_file(op, next_seq(target_dir), name,
+                                        conventions))
     return path
 
 
