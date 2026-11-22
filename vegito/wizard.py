@@ -11,6 +11,7 @@ from rich.panel import Panel
 
 from . import manifest as mf
 from .collection import (
+    SKIP_DIRS,
     VAR_NAME_RE,
     find_collection_root,
     format_conventions,
@@ -69,6 +70,104 @@ def _suggest_folder(op: dict, dirs: list[str]) -> str | None:
     isn't among the choices)."""
     top = op["path"].strip("/").split("/")[0]
     return top if top in dirs else (dirs[0] if dirs else None)
+
+
+# Picker control choices — opaque sentinels kept distinct from
+# directory-name strings; dispatch is by identity, never by label.
+_USE = object()
+_NEW_SEG = object()
+_BACK = object()
+
+
+def _child_segments(dirs: list[str], prefix: str) -> list[str]:
+    """Sorted unique immediate child segment names under ``prefix``.
+
+    ``dirs`` entries are ``/``-separated collection-relative paths as
+    ``list_dirs`` produces them (``str(Path)`` — POSIX separators;
+    Windows separator normalization is out of scope). Missing
+    intermediate ancestors are derived from full paths without
+    mutating ``dirs``.
+    """
+    head = prefix + "/" if prefix else ""
+    out = set()
+    for d in dirs:
+        rest = d if not prefix else \
+            d[len(head):] if d.startswith(head) else None
+        if rest:
+            out.add(rest.split("/", 1)[0])
+    return sorted(out)
+
+
+def _valid_new_segment(answer: str) -> bool | str:
+    """questionary validator for one typed folder segment.
+
+    Blank is valid — it returns to the level's menu (navigation, not a
+    directory name). Separators, dot segments, dot-prefixed names, and
+    scanner-excluded names are rejected so generated requests stay
+    visible to later collection scans. Context-free: sibling matching
+    belongs in the picker.
+    """
+    seg = answer.strip()
+    if not seg:
+        return True
+    if "/" in seg or "\\" in seg:
+        return "one folder level at a time — no slashes"
+    if seg.startswith("."):
+        return "dot-prefixed names are skipped by collection scans"
+    if seg.lower() in SKIP_DIRS:
+        return "that name is skipped by collection scans"
+    return True
+
+
+def _pick_new_folder(dirs: list[str]):
+    """Drill-down folder picker: select existing levels, type new
+    segments one at a time. Never mutates ``dirs`` or writes files.
+
+    Returns the chosen collection-relative folder (``""`` = collection
+    root), ``None`` when a prompt is cancelled, or ``_BACK`` when Back
+    is picked at the top level — the caller re-asks the outer select.
+    """
+    path = ""
+    while True:
+        shown = path or "(collection root)"
+        children = _child_segments(dirs, path)
+        pick = questionary.select(
+            f"Folder: {shown}",
+            choices=[Choice(f'✓ Use "{shown}"', value=_USE)]
+                    + [Choice(c, value=c) for c in children]
+                    + [Choice("+ New segment…", value=_NEW_SEG),
+                       Choice("← Back", value=_BACK)],
+            default=_NEW_SEG if not path else _USE,
+        ).ask()
+        if pick is None:
+            return None
+        if pick is _USE:
+            return path
+        if pick is _BACK:
+            if not path:
+                return _BACK
+            path = path.rpartition("/")[0]
+            continue
+        if pick is not _NEW_SEG:
+            path = f"{path}/{pick}" if path else pick
+            continue
+        seg = questionary.text(
+            f"New folder under {shown} (blank to go back):",
+            validate=_valid_new_segment).ask()
+        if seg is None:
+            return None
+        seg = seg.strip()
+        if not seg:
+            continue
+        # Exact match first, then a unique case-insensitive match;
+        # several candidates force choosing the child from the menu.
+        if seg not in children:
+            ci = [c for c in children if c.casefold() == seg.casefold()]
+            if len(ci) == 1:
+                seg = ci[0]
+            elif len(ci) > 1:
+                continue
+        path = f"{path}/{seg}" if path else seg
 
 
 def _review(changeset: dict, dirs: list[str]) -> bool:

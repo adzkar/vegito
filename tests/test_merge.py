@@ -566,6 +566,97 @@ def test_review_empty_dirs(monkeypatch):
     assert changeset["added"][0]["name"] == "req"
 
 
+def test_child_segments():
+    """Immediate children under a prefix: sorted, deduplicated, with
+    missing ancestors derived from full paths."""
+    from vegito.wizard import _child_segments
+    dirs = ["a", "a/b", "a/b/c", "a/d", "e", "features A/sub"]
+    assert _child_segments(dirs, "") == ["a", "e", "features A"]
+    assert _child_segments(dirs, "a") == ["b", "d"]
+    assert _child_segments(dirs, "a/b") == ["c"]
+    assert _child_segments(dirs, "features A") == ["sub"]
+    # a prefix equal to an entry has no children
+    assert _child_segments(dirs, "e") == []
+    # a string prefix that isn't a path prefix doesn't match
+    assert _child_segments(["features A/sub"], "features") == []
+    # intermediate ancestors are inferred from full paths
+    assert _child_segments(["x/y/z"], "") == ["x"]
+    assert _child_segments(["x/y/z"], "x") == ["y"]
+    # unrelated prefixes are ignored; duplicates collapse
+    assert _child_segments(["m/1", "m/2", "m/1/deep", "z"], "m") == \
+        ["1", "2"]
+
+
+def test_valid_new_segment():
+    """Blank cancels segment entry; separators, dot names, and
+    scanner-excluded names are rejected."""
+    from vegito.wizard import _valid_new_segment
+    for ok in ("", "   ", "sub a", " sub a ", "features A"):
+        assert _valid_new_segment(ok) is True
+    for bad in ("a/b", "a\\b", ".", "..", " . ", " .. ",
+                "environments", "ENVIRONMENTS", "_Archived",
+                "_archived", "node_modules", ".git", ".merger",
+                ".hidden"):
+        assert _valid_new_segment(bad) is not True
+
+
+@pytest.mark.parametrize("dirs,script,expected", [
+    ([], ["_USE"], ""),
+    (["features A"], ["features A", "_USE"], "features A"),
+    (["features A/sub features a/sub sub feature a"],
+     ["features A", "sub features a", "sub sub feature a", "_USE"],
+     "features A/sub features a/sub sub feature a"),
+    (["features A"],
+     ["features A", "_NEW_SEG", "sub features a", "_NEW_SEG",
+      "sub sub feature a", "_USE"],
+     "features A/sub features a/sub sub feature a"),
+    (["features A"], ["_NEW_SEG", "features A", "_USE"], "features A"),
+    (["features A"], ["_NEW_SEG", "FEATURES a", "_USE"], "features A"),
+    (["features A"], ["_NEW_SEG", "   ", "features A", "_USE"],
+     "features A"),
+    (["features A"], ["features A", "_BACK", "_USE"], ""),
+    (["features A"], ["_BACK"], "_BACK"),
+    (["‹use›", "+ New segment…", "← Back"], ["← Back", "_USE"],
+     "← Back"),
+    ([], [None], None),
+    ([], ["_NEW_SEG", None], None),
+    (["API", "api"], ["_NEW_SEG", "api", "_USE"], "api"),
+    (["API", "api"], ["_NEW_SEG", "Api", "api", "_USE"], "api"),
+], ids=[
+    "explicit-root", "existing-child", "nested-existing",
+    "new-below-existing", "typed-existing", "typed-case-variant",
+    "blank-cancels-segment", "back-below-root", "back-at-root",
+    "control-like-names", "cancel-select", "cancel-text",
+    "exact-match-beats-casefold", "ambiguous-casefold-reasks",
+])
+def test_pick_new_folder(monkeypatch, dirs, script, expected):
+    """Picker scenario table — controls are the opaque sentinels;
+    ``dirs`` is never mutated."""
+    from vegito import wizard
+    sent = {"_USE": wizard._USE, "_NEW_SEG": wizard._NEW_SEG,
+            "_BACK": wizard._BACK}
+    resolved = [sent.get(a, a) for a in script]
+    want = wizard._BACK if expected == "_BACK" else expected
+    before = list(dirs)
+
+    _PromptScript(monkeypatch, resolved)
+    result = wizard._pick_new_folder(dirs)
+    assert result == want
+    if expected == "_BACK":
+        assert result is wizard._BACK
+    assert dirs == before
+
+
+def test_pick_new_folder_default_cursor(monkeypatch):
+    """Root menu defaults to New segment, menus below root to Use —
+    defaults validated by real prompt construction."""
+    from vegito import wizard
+    harness = _PromptScript(monkeypatch, ["a", wizard._USE])
+    assert wizard._pick_new_folder(["a"]) == "a"
+    assert harness.calls[0][3] is wizard._NEW_SEG
+    assert harness.calls[1][3] is wizard._USE
+
+
 def test_create_request_strips_name(coll):
     """Padded/blank names normalize so filename and info.name agree."""
     from vegito.apply import create_request
