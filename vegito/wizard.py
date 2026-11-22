@@ -77,6 +77,7 @@ def _suggest_folder(op: dict, dirs: list[str]) -> str | None:
 _USE = object()
 _NEW_SEG = object()
 _BACK = object()
+_NEW_FOLDER = object()
 
 
 def _child_segments(dirs: list[str], prefix: str) -> list[str]:
@@ -173,7 +174,7 @@ def _pick_new_folder(dirs: list[str]):
 def _review(changeset: dict, dirs: list[str]) -> bool:
     """Walk the user through the changeset, mutating actions in place.
 
-    Returns False when the user aborts (Esc/Ctrl-C)."""
+    Returns False when the user aborts (Ctrl-C)."""
     if changeset["added"]:
         console.print("\n[bold green]New endpoints[/] — choose which to create:")
         choices = [Choice(
@@ -188,22 +189,30 @@ def _review(changeset: dict, dirs: list[str]) -> bool:
                 item["action"] = "skip"
                 continue
             op = item["operation"]
-            folder = questionary.select(
-                f"Folder for {op['method'].upper()} {op['path']} "
-                f"({op['operation_id']}):",
-                choices=dirs + ["+ New folder…"],
-                default=_suggest_folder(op, dirs),
-            ).ask()
-            if folder is None:
-                return False
-            if folder == "+ New folder…":
-                folder = questionary.path("New folder path (relative):").ask()
+            while True:
+                folder = questionary.select(
+                    f"Folder for {op['method'].upper()} {op['path']} "
+                    f"({op['operation_id']}):",
+                    choices=dirs
+                    + [Choice("+ New folder…", value=_NEW_FOLDER)],
+                    default=_suggest_folder(op, dirs),
+                ).ask()
                 if folder is None:
                     return False
-                folder = folder.strip().strip("/")
-                if folder and folder not in dirs:
-                    dirs.append(folder)
-                    dirs.sort()
+                if folder is _NEW_FOLDER:
+                    folder = _pick_new_folder(dirs)
+                    if folder is None:
+                        return False
+                    if folder is _BACK:
+                        continue  # re-ask this endpoint's outer select
+                break
+            # Register every missing ancestor plus the leaf so later
+            # endpoints see the path — the picker itself never mutates.
+            if folder:
+                parts = folder.split("/")
+                dirs += ["/".join(parts[:i]) for i in range(1, len(parts) + 1)
+                         if "/".join(parts[:i]) not in dirs]
+                dirs.sort()
             item["folder"] = folder
             name = questionary.text(
                 "Request name:", default=item["name"]).ask()
