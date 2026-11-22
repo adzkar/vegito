@@ -62,9 +62,13 @@ def _pick_collection() -> Path | None:
     return root or Path(answer).expanduser()
 
 
-def _suggest_folder(op: dict, dirs: list[str]) -> str:
+def _suggest_folder(op: dict, dirs: list[str]) -> str | None:
+    """Default folder for an added endpoint: the path's top-level
+    segment when it exists in ``dirs``, else the first directory —
+    ``None`` when there are none (Questionary rejects a default that
+    isn't among the choices)."""
     top = op["path"].strip("/").split("/")[0]
-    return top if top in dirs else (dirs[0] if dirs else "")
+    return top if top in dirs else (dirs[0] if dirs else None)
 
 
 def _review(changeset: dict, dirs: list[str]) -> bool:

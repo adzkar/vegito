@@ -282,6 +282,60 @@ def _apply_all(schema_path, root, ops, reqs, changeset):
     return report
 
 
+class _Ask:
+    """Scripted prompt result — ``.ask()`` returns the canned answer."""
+
+    def __init__(self, result):
+        self.result = result
+
+    def ask(self):
+        return self.result
+
+
+class _PromptScript:
+    """Real-construction prompt harness driven by one ordered script.
+
+    Select/text/path answers come from the same ordered script, so a
+    flow that asks prompts in an unexpected order fails the test. The
+    select stub still builds the real questionary prompt (an invalid
+    default raises instead of being hidden by the stub), records the
+    offered values and default, then discards the prompt — nothing is
+    ever ``.ask()``ed. A scripted ``None`` is a cancellation; a
+    non-``None`` select answer must be among the offered values.
+    Checkboxes are not scripted — stub them per test with ``_Ask``.
+    """
+
+    def __init__(self, monkeypatch, script):
+        from vegito import wizard
+        self._script = iter(script)
+        self.calls = []  # (kind, message, offered values | None, default)
+        real_select = wizard.questionary.select
+
+        def fake_select(msg, choices=None, default=None):
+            real_select(msg, choices=choices, default=default)
+            values = [getattr(c, "value", c) for c in (choices or [])]
+            self.calls.append(("select", msg, values, default))
+            answer = next(self._script)
+            assert answer is None or answer in values, \
+                f"scripted {answer!r} not offered (choices: {values!r})"
+            return _Ask(answer)
+
+        def _record(kind):
+            def fake(msg, **kwargs):
+                self.calls.append((kind, msg, None, kwargs.get("default")))
+                return _Ask(next(self._script))
+            return fake
+
+        monkeypatch.setattr(wizard.questionary, "select", fake_select)
+        monkeypatch.setattr(wizard.questionary, "text", _record("text"))
+        monkeypatch.setattr(wizard.questionary, "path", _record("path"))
+
+    def messages(self, kind=None):
+        """Recorded prompt messages, optionally filtered by kind."""
+        return [m for k, m, _, _ in self.calls
+                if kind is None or k == kind]
+
+
 # ---------- tests ----------
 
 def test_diff_detects_all_change_kinds(coll):
@@ -478,6 +532,38 @@ def test_new_folder_offered_for_next_endpoint(monkeypatch):
     assert wizard._review(changeset, ["demo"]) is True
     assert "web" in seen_choices[1]
     assert changeset["added"][0]["folder"] == "web"
+
+
+def test_suggest_folder():
+    """The endpoint's top-level path segment wins when it is in dirs,
+    otherwise the first directory; empty dirs means no default."""
+    from vegito.wizard import _suggest_folder
+    op = {"path": "/demo/widgets/"}
+    assert _suggest_folder(op, ["demo", "internal"]) == "demo"
+    assert _suggest_folder(op, ["internal", "web"]) == "internal"
+    assert _suggest_folder(op, []) is None
+
+
+def test_review_empty_dirs(monkeypatch):
+    """A collection with no sub-folders must not crash the folder
+    select — an absent default is offered, not an empty string."""
+    from vegito import wizard
+
+    op = {"method": "get", "path": "/a/", "operation_id": "a"}
+    changeset = {"added": [{"operation": op, "action": "add",
+                            "folder": None, "name": "a"}],
+                 "removed": [], "moved": [], "changed": []}
+    harness = _PromptScript(
+        monkeypatch, ["+ New folder…", "web", "req"])
+    monkeypatch.setattr(wizard.questionary, "checkbox",
+                        lambda *a, **k: _Ask([0]))
+
+    assert wizard._review(changeset, []) is True
+    kind, _, values, default = harness.calls[0]
+    assert kind == "select" and default is None
+    assert "+ New folder…" in values
+    assert changeset["added"][0]["folder"] == "web"
+    assert changeset["added"][0]["name"] == "req"
 
 
 def test_create_request_strips_name(coll):
