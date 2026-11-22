@@ -642,6 +642,70 @@ def test_review_control_like_dir_name(monkeypatch):
     assert dirs == ["+ New folder…"]
 
 
+def test_review_root_round_trip(coll, monkeypatch, tmp_path):
+    """Explicit root selection survives review → plan → reload → apply:
+    the request lands at collection root, not an invented folder."""
+    from vegito import wizard
+    from vegito.collection import list_dirs
+
+    root, _, v2 = coll
+    ops, reqs, cs = _changeset(v2, root)
+    _PromptScript(monkeypatch,
+                  [wizard._NEW_FOLDER, wizard._USE, "req"])
+    boxes = iter([[0]] + [[] for _ in range(20)])
+    monkeypatch.setattr(wizard.questionary, "checkbox",
+                        lambda *a, **k: _Ask(next(boxes)))
+
+    assert wizard._review(cs, list_dirs(root)) is True
+    assert cs["added"][0]["folder"] == ""
+
+    plan_path = tmp_path / "merge-plan.yml"
+    save_plan(changeset_to_plan(cs, str(v2), root), plan_path)
+    plan = load_plan(plan_path)
+    assert plan["added"][0]["folder"] == ""
+
+    report = execute_plan(root, plan, ops, reqs, load_manifest(root))
+    assert report["errors"] == []
+    assert (root / "req.yml").is_file()
+
+
+@pytest.mark.parametrize("script,cancelled", [
+    (["_NEW_FOLDER", None], ("select", "Folder:")),
+    (["_NEW_FOLDER", "_NEW_SEG", None], ("text", "New folder under")),
+], ids=["picker-select", "new-segment-text"])
+def test_run_folder_picker_abort_does_not_apply(
+        coll, monkeypatch, script, cancelled):
+    """Cancelling inside the picker aborts run() before apply — no
+    confirm, execute_plan, manifest save, or report — and the
+    collection is left byte-identical."""
+    from vegito import wizard
+
+    root, _, v2 = coll
+    sent = {"_NEW_FOLDER": wizard._NEW_FOLDER, "_NEW_SEG": wizard._NEW_SEG}
+    harness = _PromptScript(monkeypatch, [sent.get(a, a) for a in script])
+    monkeypatch.setattr(wizard.questionary, "checkbox",
+                        lambda *a, **k: _Ask([0]))
+    called = []
+    for mod, fn in ((wizard, "execute_plan"), (wizard, "render_report"),
+                    (wizard, "write_report"), (wizard.mf, "save"),
+                    (wizard.questionary, "confirm")):
+        monkeypatch.setattr(
+            mod, fn, lambda *a, **k: called.append(fn) or _Ask(True))
+    before = {str(p.relative_to(root)): p.read_text()
+              for p in root.rglob("*") if p.is_file()}
+
+    wizard.run(str(v2), str(root))
+
+    # The cancelled prompt is the picker's — not an earlier proposal
+    # prompt that would satisfy the script by accident.
+    kind, msg, *_ = harness.calls[-1]
+    assert kind == cancelled[0]
+    assert msg.startswith(cancelled[1])
+    assert called == []
+    assert {str(p.relative_to(root)): p.read_text()
+            for p in root.rglob("*") if p.is_file()} == before
+
+
 def test_child_segments():
     """Immediate children under a prefix: sorted, deduplicated, with
     missing ancestors derived from full paths."""
