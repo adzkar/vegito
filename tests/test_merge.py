@@ -690,7 +690,7 @@ def test_run_folder_picker_abort_does_not_apply(
                     (wizard, "write_report"), (wizard.mf, "save"),
                     (wizard.questionary, "confirm")):
         monkeypatch.setattr(
-            mod, fn, lambda *a, **k: called.append(fn) or _Ask(True))
+            mod, fn, lambda *a, _fn=fn, **k: called.append(_fn) or _Ask(True))
     before = {str(p.relative_to(root)): p.read_text()
               for p in root.rglob("*") if p.is_file()}
 
