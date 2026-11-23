@@ -16,3 +16,6 @@ venv/
 
 # OS
 .DS_Store
+
+# plan folder
+.plan

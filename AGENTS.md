@@ -7,7 +7,9 @@ request names, folder grouping, `runtime.scripts`, auth, filled-in values.
 ## Commands
 
 - `vegito` — guided interactive flow (no args): pick schema → pick
-  collection → review changes → apply. The primary interface.
+  collection → review changes → apply. The primary interface. In the
+  added-endpoint review, `+ New folder…` opens a drill-down picker —
+  select existing levels or type new segments one at a time.
 - `vegito diff --schema X [--collection Y]` — print changeset only.
 - `vegito plan --schema X -o merge-plan.yml` — write editable plan file.
 - `vegito apply [merge-plan.yml]` — execute a plan (non-interactive).

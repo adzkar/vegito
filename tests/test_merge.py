@@ -282,6 +282,60 @@ def _apply_all(schema_path, root, ops, reqs, changeset):
     return report
 
 
+class _Ask:
+    """Scripted prompt result — ``.ask()`` returns the canned answer."""
+
+    def __init__(self, result):
+        self.result = result
+
+    def ask(self):
+        return self.result
+
+
+class _PromptScript:
+    """Real-construction prompt harness driven by one ordered script.
+
+    Select/text/path answers come from the same ordered script, so a
+    flow that asks prompts in an unexpected order fails the test. The
+    select stub still builds the real questionary prompt (an invalid
+    default raises instead of being hidden by the stub), records the
+    offered values and default, then discards the prompt — nothing is
+    ever ``.ask()``ed. A scripted ``None`` is a cancellation; a
+    non-``None`` select answer must be among the offered values.
+    Checkboxes are not scripted — stub them per test with ``_Ask``.
+    """
+
+    def __init__(self, monkeypatch, script):
+        from vegito import wizard
+        self._script = iter(script)
+        self.calls = []  # (kind, message, offered values | None, default)
+        real_select = wizard.questionary.select
+
+        def fake_select(msg, choices=None, default=None):
+            real_select(msg, choices=choices, default=default)
+            values = [getattr(c, "value", c) for c in (choices or [])]
+            self.calls.append(("select", msg, values, default))
+            answer = next(self._script)
+            assert answer is None or answer in values, \
+                f"scripted {answer!r} not offered (choices: {values!r})"
+            return _Ask(answer)
+
+        def _record(kind):
+            def fake(msg, **kwargs):
+                self.calls.append((kind, msg, None, kwargs.get("default")))
+                return _Ask(next(self._script))
+            return fake
+
+        monkeypatch.setattr(wizard.questionary, "select", fake_select)
+        monkeypatch.setattr(wizard.questionary, "text", _record("text"))
+        monkeypatch.setattr(wizard.questionary, "path", _record("path"))
+
+    def messages(self, kind=None):
+        """Recorded prompt messages, optionally filtered by kind."""
+        return [m for k, m, _, _ in self.calls
+                if kind is None or k == kind]
+
+
 # ---------- tests ----------
 
 def test_diff_detects_all_change_kinds(coll):
@@ -442,15 +496,9 @@ def test_display_path_prefers_cwd_relative(tmp_path, monkeypatch):
 
 
 def test_new_folder_offered_for_next_endpoint(monkeypatch):
-    """A folder typed for one added endpoint is a choice for the next."""
+    """A nested folder created via New segment prompts — with its
+    ancestors — is a choice for the next endpoint."""
     from vegito import wizard
-
-    class _Ask:
-        def __init__(self, result):
-            self.result = result
-
-        def ask(self):
-            return self.result
 
     def op(pid):
         return {"method": "get", "path": f"/{pid}/", "operation_id": pid}
@@ -460,24 +508,293 @@ def test_new_folder_offered_for_next_endpoint(monkeypatch):
                            {"operation": op("b"), "action": "add",
                             "folder": None, "name": "b"}],
                  "removed": [], "moved": [], "changed": []}
-    selects = iter(["+ New folder…", "web"])
-    seen_choices = []
-
-    def fake_select(_msg, choices=None, default=None):
-        seen_choices.append(list(choices))
-        return _Ask(next(selects))
-
+    dirs = ["demo"]
+    harness = _PromptScript(
+        monkeypatch,
+        [wizard._NEW_FOLDER, wizard._NEW_SEG, "web", wizard._NEW_SEG,
+         "v2", wizard._USE, "req", "web", "req"])
     monkeypatch.setattr(wizard.questionary, "checkbox",
                         lambda *a, **k: _Ask([0, 1]))
-    monkeypatch.setattr(wizard.questionary, "select", fake_select)
-    monkeypatch.setattr(wizard.questionary, "path",
-                        lambda *a, **k: _Ask("web"))
-    monkeypatch.setattr(wizard.questionary, "text",
-                        lambda *a, **k: _Ask("req"))
 
-    assert wizard._review(changeset, ["demo"]) is True
-    assert "web" in seen_choices[1]
-    assert changeset["added"][0]["folder"] == "web"
+    assert wizard._review(changeset, dirs) is True
+    second_outer = [c for c in harness.calls
+                    if c[0] == "select" and c[1].startswith("Folder for")][1]
+    # every ancestor and the leaf registered, sorted, no duplicates
+    assert second_outer[2] == ["demo", "web", "web/v2", wizard._NEW_FOLDER]
+    assert dirs == ["demo", "web", "web/v2"]
+    assert changeset["added"][0]["folder"] == "web/v2"
+    assert changeset["added"][1]["folder"] == "web"
+
+
+def test_suggest_folder():
+    """The endpoint's top-level path segment wins when it is in dirs,
+    otherwise the first directory; empty dirs means no default."""
+    from vegito.wizard import _suggest_folder
+    op = {"path": "/demo/widgets/"}
+    assert _suggest_folder(op, ["demo", "internal"]) == "demo"
+    assert _suggest_folder(op, ["internal", "web"]) == "internal"
+    assert _suggest_folder(op, []) is None
+
+
+@pytest.mark.parametrize("script,want", [
+    (["_NEW_FOLDER", "_USE", "req"], ""),
+    (["_NEW_FOLDER", "_NEW_SEG", "web", "_USE", "req"], "web"),
+], ids=["explicit-root", "new-folder"])
+def test_review_empty_dirs(monkeypatch, script, want):
+    """A collection with no sub-folders must not crash the folder
+    select — an absent default is offered, and the picker yields both
+    explicit root and newly created folders."""
+    from vegito import wizard
+
+    op = {"method": "get", "path": "/a/", "operation_id": "a"}
+    changeset = {"added": [{"operation": op, "action": "add",
+                            "folder": None, "name": "a"}],
+                 "removed": [], "moved": [], "changed": []}
+    sent = {"_NEW_FOLDER": wizard._NEW_FOLDER, "_NEW_SEG": wizard._NEW_SEG,
+            "_USE": wizard._USE}
+    dirs = []
+    harness = _PromptScript(
+        monkeypatch, [sent.get(a, a) for a in script])
+    monkeypatch.setattr(wizard.questionary, "checkbox",
+                        lambda *a, **k: _Ask([0]))
+
+    assert wizard._review(changeset, dirs) is True
+    kind, _, values, default = harness.calls[0]
+    assert kind == "select" and default is None
+    assert wizard._NEW_FOLDER in values
+    assert changeset["added"][0]["folder"] == want
+    assert changeset["added"][0]["name"] == "req"
+
+
+def test_review_picker_back_reasks_outer_select(monkeypatch):
+    """Back at the picker's top level returns to the endpoint's folder
+    select with the same default — no name prompt in between."""
+    from vegito import wizard
+
+    op = {"method": "get", "path": "/a/", "operation_id": "a"}
+    changeset = {"added": [{"operation": op, "action": "add",
+                            "folder": None, "name": "a"}],
+                 "removed": [], "moved": [], "changed": []}
+    dirs = ["demo"]
+    harness = _PromptScript(
+        monkeypatch,
+        [wizard._NEW_FOLDER, wizard._BACK, "demo", "req"])
+    monkeypatch.setattr(wizard.questionary, "checkbox",
+                        lambda *a, **k: _Ask([0]))
+
+    assert wizard._review(changeset, dirs) is True
+    assert [k for k, *_ in harness.calls] == \
+        ["select", "select", "select", "text"]
+    outer_first, picker_menu, outer_second, name = harness.calls
+    assert outer_first[1].startswith("Folder for")
+    assert picker_menu[1].startswith("Folder:")
+    assert outer_second[1] == outer_first[1]
+    assert outer_second[3] == outer_first[3] == "demo"
+    assert name[1] == "Request name:"
+    assert dirs == ["demo"]
+    assert changeset["added"][0]["folder"] == "demo"
+
+
+@pytest.mark.parametrize("script", [
+    [None],                                # outer folder select
+    ["_NEW_FOLDER", None],                 # a picker menu
+    ["_NEW_FOLDER", "_NEW_SEG", None],     # the new-segment text prompt
+], ids=["outer-select", "picker-menu", "new-segment-text"])
+def test_review_picker_cancel_returns_false(monkeypatch, script):
+    """Ctrl-C at any point in folder selection aborts the review: the
+    item's folder keeps its prior value and no name prompt is asked."""
+    from vegito import wizard
+
+    op = {"method": "get", "path": "/a/", "operation_id": "a"}
+    changeset = {"added": [{"operation": op, "action": "add",
+                            "folder": None, "name": "a"}],
+                 "removed": [], "moved": [], "changed": []}
+    sent = {"_NEW_FOLDER": wizard._NEW_FOLDER, "_NEW_SEG": wizard._NEW_SEG}
+    dirs = ["demo"]
+    harness = _PromptScript(
+        monkeypatch, [sent.get(a, a) for a in script])
+    monkeypatch.setattr(wizard.questionary, "checkbox",
+                        lambda *a, **k: _Ask([0]))
+
+    assert wizard._review(changeset, dirs) is False
+    assert changeset["added"][0]["folder"] is None
+    assert "Request name:" not in harness.messages("text")
+    assert dirs == ["demo"]
+
+
+def test_review_control_like_dir_name(monkeypatch):
+    """A real directory named like the control label is a plain string
+    choice — selecting it stores the folder, never opens the picker."""
+    from vegito import wizard
+
+    op = {"method": "get", "path": "/a/", "operation_id": "a"}
+    changeset = {"added": [{"operation": op, "action": "add",
+                            "folder": None, "name": "a"}],
+                 "removed": [], "moved": [], "changed": []}
+    dirs = ["+ New folder…"]
+    harness = _PromptScript(monkeypatch, ["+ New folder…", "req"])
+    monkeypatch.setattr(wizard.questionary, "checkbox",
+                        lambda *a, **k: _Ask([0]))
+
+    assert wizard._review(changeset, dirs) is True
+    assert changeset["added"][0]["folder"] == "+ New folder…"
+    assert not any(m.startswith("Folder:") for m in harness.messages())
+    assert dirs == ["+ New folder…"]
+
+
+def test_review_root_round_trip(coll, monkeypatch, tmp_path):
+    """Explicit root selection survives review → plan → reload → apply:
+    the request lands at collection root, not an invented folder."""
+    from vegito import wizard
+    from vegito.collection import list_dirs
+
+    root, _, v2 = coll
+    ops, reqs, cs = _changeset(v2, root)
+    _PromptScript(monkeypatch,
+                  [wizard._NEW_FOLDER, wizard._USE, "req"])
+    boxes = iter([[0]] + [[] for _ in range(20)])
+    monkeypatch.setattr(wizard.questionary, "checkbox",
+                        lambda *a, **k: _Ask(next(boxes)))
+
+    assert wizard._review(cs, list_dirs(root)) is True
+    assert cs["added"][0]["folder"] == ""
+
+    plan_path = tmp_path / "merge-plan.yml"
+    save_plan(changeset_to_plan(cs, str(v2), root), plan_path)
+    plan = load_plan(plan_path)
+    assert plan["added"][0]["folder"] == ""
+
+    report = execute_plan(root, plan, ops, reqs, load_manifest(root))
+    assert report["errors"] == []
+    assert (root / "req.yml").is_file()
+
+
+@pytest.mark.parametrize("script,cancelled", [
+    (["_NEW_FOLDER", None], ("select", "Folder:")),
+    (["_NEW_FOLDER", "_NEW_SEG", None], ("text", "New folder under")),
+], ids=["picker-select", "new-segment-text"])
+def test_run_folder_picker_abort_does_not_apply(
+        coll, monkeypatch, script, cancelled):
+    """Cancelling inside the picker aborts run() before apply — no
+    confirm, execute_plan, manifest save, or report — and the
+    collection is left byte-identical."""
+    from vegito import wizard
+
+    root, _, v2 = coll
+    sent = {"_NEW_FOLDER": wizard._NEW_FOLDER, "_NEW_SEG": wizard._NEW_SEG}
+    harness = _PromptScript(monkeypatch, [sent.get(a, a) for a in script])
+    monkeypatch.setattr(wizard.questionary, "checkbox",
+                        lambda *a, **k: _Ask([0]))
+    called = []
+    for mod, fn in ((wizard, "execute_plan"), (wizard, "render_report"),
+                    (wizard, "write_report"), (wizard.mf, "save"),
+                    (wizard.questionary, "confirm")):
+        monkeypatch.setattr(
+            mod, fn, lambda *a, _fn=fn, **k: called.append(_fn) or _Ask(True))
+    before = {str(p.relative_to(root)): p.read_text()
+              for p in root.rglob("*") if p.is_file()}
+
+    wizard.run(str(v2), str(root))
+
+    # The cancelled prompt is the picker's — not an earlier proposal
+    # prompt that would satisfy the script by accident.
+    kind, msg, *_ = harness.calls[-1]
+    assert kind == cancelled[0]
+    assert msg.startswith(cancelled[1])
+    assert called == []
+    assert {str(p.relative_to(root)): p.read_text()
+            for p in root.rglob("*") if p.is_file()} == before
+
+
+def test_child_segments():
+    """Immediate children under a prefix: sorted, deduplicated, with
+    missing ancestors derived from full paths."""
+    from vegito.wizard import _child_segments
+    dirs = ["a", "a/b", "a/b/c", "a/d", "e", "features A/sub"]
+    assert _child_segments(dirs, "") == ["a", "e", "features A"]
+    assert _child_segments(dirs, "a") == ["b", "d"]
+    assert _child_segments(dirs, "a/b") == ["c"]
+    assert _child_segments(dirs, "features A") == ["sub"]
+    # a prefix equal to an entry has no children
+    assert _child_segments(dirs, "e") == []
+    # a string prefix that isn't a path prefix doesn't match
+    assert _child_segments(["features A/sub"], "features") == []
+    # intermediate ancestors are inferred from full paths
+    assert _child_segments(["x/y/z"], "") == ["x"]
+    assert _child_segments(["x/y/z"], "x") == ["y"]
+    # unrelated prefixes are ignored; duplicates collapse
+    assert _child_segments(["m/1", "m/2", "m/1/deep", "z"], "m") == \
+        ["1", "2"]
+
+
+def test_valid_new_segment():
+    """Blank cancels segment entry; separators, dot names, and
+    scanner-excluded names are rejected."""
+    from vegito.wizard import _valid_new_segment
+    for ok in ("", "   ", "sub a", " sub a ", "features A"):
+        assert _valid_new_segment(ok) is True
+    for bad in ("a/b", "a\\b", ".", "..", " . ", " .. ",
+                "environments", "ENVIRONMENTS", "_Archived",
+                "_archived", "node_modules", ".git", ".merger",
+                ".hidden"):
+        assert _valid_new_segment(bad) is not True
+
+
+@pytest.mark.parametrize("dirs,script,expected", [
+    ([], ["_USE"], ""),
+    (["features A"], ["features A", "_USE"], "features A"),
+    (["features A/sub features a/sub sub feature a"],
+     ["features A", "sub features a", "sub sub feature a", "_USE"],
+     "features A/sub features a/sub sub feature a"),
+    (["features A"],
+     ["features A", "_NEW_SEG", "sub features a", "_NEW_SEG",
+      "sub sub feature a", "_USE"],
+     "features A/sub features a/sub sub feature a"),
+    (["features A"], ["_NEW_SEG", "features A", "_USE"], "features A"),
+    (["features A"], ["_NEW_SEG", "FEATURES a", "_USE"], "features A"),
+    (["features A"], ["_NEW_SEG", "   ", "features A", "_USE"],
+     "features A"),
+    (["features A"], ["features A", "_BACK", "_USE"], ""),
+    (["features A"], ["_BACK"], "_BACK"),
+    (["‹use›", "+ New segment…", "← Back"], ["← Back", "_USE"],
+     "← Back"),
+    ([], [None], None),
+    ([], ["_NEW_SEG", None], None),
+    (["API", "api"], ["_NEW_SEG", "api", "_USE"], "api"),
+    (["API", "api"], ["_NEW_SEG", "Api", "api", "_USE"], "api"),
+], ids=[
+    "explicit-root", "existing-child", "nested-existing",
+    "new-below-existing", "typed-existing", "typed-case-variant",
+    "blank-cancels-segment", "back-below-root", "back-at-root",
+    "control-like-names", "cancel-select", "cancel-text",
+    "exact-match-beats-casefold", "ambiguous-casefold-reasks",
+])
+def test_pick_new_folder(monkeypatch, dirs, script, expected):
+    """Picker scenario table — controls are the opaque sentinels;
+    ``dirs`` is never mutated."""
+    from vegito import wizard
+    sent = {"_USE": wizard._USE, "_NEW_SEG": wizard._NEW_SEG,
+            "_BACK": wizard._BACK}
+    resolved = [sent.get(a, a) for a in script]
+    want = wizard._BACK if expected == "_BACK" else expected
+    before = list(dirs)
+
+    _PromptScript(monkeypatch, resolved)
+    result = wizard._pick_new_folder(dirs)
+    assert result == want
+    if expected == "_BACK":
+        assert result is wizard._BACK
+    assert dirs == before
+
+
+def test_pick_new_folder_default_cursor(monkeypatch):
+    """Root menu defaults to New segment, menus below root to Use —
+    defaults validated by real prompt construction."""
+    from vegito import wizard
+    harness = _PromptScript(monkeypatch, ["a", wizard._USE])
+    assert wizard._pick_new_folder(["a"]) == "a"
+    assert harness.calls[0][3] is wizard._NEW_SEG
+    assert harness.calls[1][3] is wizard._USE
 
 
 def test_create_request_strips_name(coll):
