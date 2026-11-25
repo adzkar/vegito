@@ -1889,6 +1889,15 @@ def test_render_report_hides_collection_parent_dirs(tmp_path):
     assert str(root) not in md
 
 
+def test_render_report_resolves_dotdot_collection_label(tmp_path):
+    """A trailing parent-directory segment labels the resolved folder."""
+    root = tmp_path / "parents" / "bruno-collection"
+    root.mkdir(parents=True)
+    md = render_report({}, "schema.yml", root / "..")
+    assert "- collection: `parents`" in md
+    assert "- collection: `..`" not in md
+
+
 def test_plan_roundtrips_conventions(coll, tmp_path):
     """Plan files carry the conventions map so apply works standalone."""
     root, _, v2 = coll

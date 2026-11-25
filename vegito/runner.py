@@ -307,7 +307,9 @@ def _collection_label(root: Path) -> str:
     """Collection label for report headers, without local parent directories."""
     raw = Path(root)
     resolved = raw.resolve()
-    return raw.name or resolved.name or str(resolved)
+    if raw.name not in ("", ".", ".."):
+        return raw.name
+    return resolved.name or str(resolved)
 
 
 def render_report(report: dict, schema_path: str, root: Path) -> str:
