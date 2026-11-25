@@ -98,33 +98,23 @@ def extract_path_params(path: str) -> list[str]:
 
 def flatten_fields(node, prefix: str = "", out: dict | None = None,
                    required_ctx: bool = False) -> dict:
-    """Flatten an OpenAPI schema object (or a plain JSON doc) to dotted paths.
+    """Flatten a plain JSON document to dotted paths.
 
     Returns {path: {"type": str, "required": bool}}. Arrays of objects are
-    flattened as ``field[].sub``.
+    flattened as ``field[].sub``. Keys are always payload data here — names
+    like ``type``, ``items``, or ``properties`` carry no schema meaning.
     """
     if out is None:
         out = {}
     if not isinstance(node, dict):
         return out
-    props = node.get("properties")
-    required = set(node.get("required") or [])
-    if props is None and "type" not in node and "items" not in node:
-        # Plain JSON value (from a request file's body data) — walk keys.
-        for key, val in node.items():
-            p = f"{prefix}{key}"
-            out[p] = {"type": _json_type(val), "required": required_ctx}
-            if isinstance(val, dict):
-                flatten_fields(val, p + ".", out, required_ctx)
-            elif isinstance(val, list) and val and isinstance(val[0], dict):
-                flatten_fields(val[0], p + "[].", out, required_ctx)
-        return out
-    for name, sub in (props or {}).items():
-        sub = sub if isinstance(sub, dict) else {}
-        p = f"{prefix}{name}"
-        out[p] = {"type": sub.get("type", "object" if "properties" in sub else "?"),
-                  "required": name in required}
-        flatten_fields(sub, p + ".", out, name in required)
+    for key, val in node.items():
+        p = f"{prefix}{key}"
+        out[p] = {"type": _json_type(val), "required": required_ctx}
+        if isinstance(val, dict):
+            flatten_fields(val, p + ".", out, required_ctx)
+        elif isinstance(val, list) and val and isinstance(val[0], dict):
+            flatten_fields(val[0], p + "[].", out, required_ctx)
     return out
 
 

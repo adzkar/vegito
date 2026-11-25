@@ -423,6 +423,78 @@ def test_second_run_is_clean(coll):
                    for i in cs2["changed"] for d in i["diffs"])
 
 
+def test_flatten_fields_treats_schema_keywords_as_payload_keys():
+    """Payload keys named type/items/properties are data, not schema syntax."""
+    from vegito.common import flatten_fields
+    flat = flatten_fields({"type": "", "items": [], "properties": {},
+                           "name": ""})
+    assert set(flat) == {"type", "items", "properties", "name"}
+
+
+def test_flatten_fields_descends_into_payload_objects_with_type_key():
+    """A nested payload object may itself carry a key named type."""
+    from vegito.common import flatten_fields
+    flat = flatten_fields({"metadata": {"type": "", "key": ""}, "name": ""})
+    assert {"metadata", "metadata.type", "metadata.key", "name"} <= set(flat)
+
+
+def test_applied_body_type_field_does_not_reappear(tmp_path):
+    """Applying a schema field named `type` must not make the next scan
+    treat the whole JSON payload as an OpenAPI schema object."""
+    root = tmp_path / "coll"
+    root.mkdir()
+    (root / "opencollection.yml").write_text(
+        "opencollection: 1.0.0\ninfo: {name: Demo API}\n")
+    (root / "Create Thing.yml").write_text(textwrap.dedent("""\
+        info: {name: Create Thing, type: http}
+        http:
+          method: POST
+          url: "{{baseUrl}}/demo/things/"
+          body:
+            type: json
+            data: |-
+              {}
+        """))
+    schema = tmp_path / "schema.yaml"
+    schema.write_text(textwrap.dedent("""\
+        openapi: 3.0.3
+        info: {title: Demo API, version: "1"}
+        paths:
+          /demo/things/:
+            post:
+              operationId: demo_things_create
+              requestBody:
+                content:
+                  application/json:
+                    schema:
+                      type: object
+                      properties:
+                        type: {type: string}
+                        name: {type: string}
+                        metadata:
+                          type: object
+                          properties:
+                            type: {type: string}
+                            key: {type: string}
+                      required: [type, name]
+              responses: {'200': {description: ''}}
+        """))
+
+    ops, reqs, cs = _changeset(schema, root)
+    body_keys = {d["key"] for i in cs["changed"] for d in i["diffs"]}
+    assert {"body.type", "body.name", "body.metadata",
+            "body.metadata.type", "body.metadata.key"} <= body_keys
+    report = _apply_all(schema, root, ops, reqs, cs)
+    assert not report["errors"], report["errors"]
+
+    scanned = scan_collection(root)
+    assert {"type", "name", "metadata", "metadata.type",
+            "metadata.key"} <= set(scanned[0]["body"])
+    _, _, cs2 = _changeset(schema, root)
+    assert not [d for i in cs2["changed"] for d in i["diffs"]
+                if d["key"].startswith("body.") and not d.get("skipped")]
+
+
 def test_skipped_diff_is_remembered(coll):
     root, _, v2 = coll
     ops, reqs, cs = _changeset(v2, root)
