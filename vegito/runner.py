@@ -303,11 +303,20 @@ def _patch_req_block_url(path: Path, op: dict):
     patch_request_file(path, [fake])
 
 
+def _collection_label(root: Path) -> str:
+    """Collection label for report headers, without local parent directories."""
+    raw = Path(root)
+    resolved = raw.resolve()
+    if raw.name not in ("", ".", ".."):
+        return raw.name
+    return resolved.name or str(resolved)
+
+
 def render_report(report: dict, schema_path: str, root: Path) -> str:
     """Markdown merge report."""
     lines = ["# vegito report", "",
              f"- schema: `{schema_path}`",
-             f"- collection: `{root}`",
+             f"- collection: `{_collection_label(root)}`",
              f"- date: {datetime.now(timezone.utc):%Y-%m-%d %H:%M UTC}", ""]
     sections = [("created", "Created request files"),
                 ("moved", "Moved endpoints"),

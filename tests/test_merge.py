@@ -15,7 +15,7 @@ from vegito.diff import build_changeset
 from vegito.manifest import load as load_manifest
 from vegito.manifest import save as save_manifest
 from vegito.planfile import changeset_to_plan, load_plan, save_plan
-from vegito.runner import execute_plan
+from vegito.runner import execute_plan, render_report
 from vegito.schema import load_schema, parse_operations
 
 _yaml = YAML(typ="safe")
@@ -1950,6 +1950,24 @@ def test_patch_tolerates_null_and_nonlist_sections(tmp_path):
         patch_request_file(g, [
             {"key": "header.X-Old", "change": "removed", "data": None}])
     assert _yaml.load(g.read_text())["http"]["headers"] == "oops"  # untouched
+
+
+def test_render_report_hides_collection_parent_dirs(tmp_path):
+    """Report headers name the collection folder without exposing parents."""
+    root = tmp_path / "parents" / "bruno-collection"
+    root.mkdir(parents=True)
+    md = render_report({}, "schema.yml", root)
+    assert "- collection: `bruno-collection`" in md
+    assert str(root) not in md
+
+
+def test_render_report_resolves_dotdot_collection_label(tmp_path):
+    """A trailing parent-directory segment labels the resolved folder."""
+    root = tmp_path / "parents" / "bruno-collection"
+    root.mkdir(parents=True)
+    md = render_report({}, "schema.yml", root / "..")
+    assert "- collection: `parents`" in md
+    assert "- collection: `..`" not in md
 
 
 def test_plan_roundtrips_conventions(coll, tmp_path):
